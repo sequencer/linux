@@ -37,7 +37,13 @@
 		framebuffer0: framebuffer@0 {
 			compatible = "apple,simple-framebuffer", "simple-framebuffer";
 			reg = <0 0 0 0>; /* To be filled by loader */
-			power-domains = <&ps_disp_cpu>, <&ps_dptx_phy>;
+			/*
+			 * ps_disp_cpu is firmware-owned and disabled on T8132. A
+			 * reference to it holds simpledrm back until the deferred
+			 * probe timeout, so the panel stays blank for the first
+			 * 16 seconds of boot.
+			 */
+			power-domains = <&ps_disp_fe>, <&ps_dptx_phy>;
 			/* Format properties will be added by loader */
 			status = "disabled";
 		};
