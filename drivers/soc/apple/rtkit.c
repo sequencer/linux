@@ -71,8 +71,17 @@ enum {
 #define APPLE_RTKIT_SYSLOG_N_ENTRIES GENMASK_ULL(7, 0)
 #define APPLE_RTKIT_SYSLOG_MSG_SIZE  GENMASK_ULL(31, 24)
 
-#define APPLE_RTKIT_OSLOG_TYPE GENMASK_ULL(63, 56)
+/*
+ * RTBuddyOSLogEndpoint::_messageHandler (macOS 27.0, fffffe000b6d3dd4) takes
+ * the message type from bits 59:56; bits 63:60 are the coalescer index.
+ */
+#define APPLE_RTKIT_OSLOG_TYPE GENMASK_ULL(59, 56)
 #define APPLE_RTKIT_OSLOG_BUFFER_REQUEST 1
+#define APPLE_RTKIT_OSLOG_FLUSH 2
+#define APPLE_RTKIT_OSLOG_SOURCE_REGISTER 3
+#define APPLE_RTKIT_OSLOG_SOURCE_UUID 4
+#define APPLE_RTKIT_OSLOG_SOURCE_ROLE 5
+#define APPLE_RTKIT_OSLOG_FLUSH_ACK_MASK 0xf0000000ffffffffULL
 #define APPLE_RTKIT_OSLOG_SIZE GENMASK_ULL(55, 36)
 #define APPLE_RTKIT_OSLOG_IOVA GENMASK_ULL(35, 0)
 
@@ -547,6 +556,26 @@ static void apple_rtkit_oslog_rx(struct apple_rtkit *rtk, u64 msg)
 	case APPLE_RTKIT_OSLOG_BUFFER_REQUEST:
 		apple_rtkit_common_rx_get_buffer(rtk, &rtk->oslog_buffer,
 						 APPLE_RTKIT_EP_OSLOG, msg);
+		break;
+	case APPLE_RTKIT_OSLOG_FLUSH:
+		/*
+		 * The firmware asks for its log entries to be consumed up to
+		 * the position in the low 32 bits. macOS answers with the
+		 * coalescer index and that position under the same type
+		 * (_handleFlushRequest, fffffe000b6d4d34..b6d4d70). The entries
+		 * themselves are not decoded here.
+		 */
+		apple_rtkit_send_message(rtk, APPLE_RTKIT_EP_OSLOG,
+					 (msg & APPLE_RTKIT_OSLOG_FLUSH_ACK_MASK) |
+					 FIELD_PREP(APPLE_RTKIT_OSLOG_TYPE,
+						    APPLE_RTKIT_OSLOG_FLUSH),
+					 NULL, false);
+		break;
+	case APPLE_RTKIT_OSLOG_SOURCE_REGISTER:
+	case APPLE_RTKIT_OSLOG_SOURCE_UUID:
+	case APPLE_RTKIT_OSLOG_SOURCE_ROLE:
+		/* The firmware names the source of its log: a registration,
+		 * the UUID in parts and the role string in parts. */
 		break;
 	default:
 		dev_warn(rtk->dev, "RTKit: Unknown oslog message: %llx\n",
