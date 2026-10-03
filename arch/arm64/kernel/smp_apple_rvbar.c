@@ -26,6 +26,7 @@
 #include <asm/cpu_ops.h>
 #include <asm/smp_apple_rvbar.h>
 #include <asm/smp_plat.h>
+#include <asm/suspend.h>
 #include <asm/sysreg.h>
 
 #define RVBAR_MAILBOX_MAGIC	0x4b414c3252564241ULL
@@ -117,6 +118,14 @@ void apple_rvbar_set_entry(unsigned int cpu, phys_addr_t entry)
 	writeq_relaxed(cpu_logical_map(cpu) | RVBAR_SLOT_VALID, &slot->mpidr);
 	writeq(RVBAR_MAILBOX_MAGIC, &rvbar_mailbox->magic);
 }
+EXPORT_SYMBOL_GPL(apple_rvbar_set_entry);
+
+/* Make @cpu come back from its next reset in cpu_resume (S2R). */
+void apple_rvbar_set_resume_entry(unsigned int cpu)
+{
+	apple_rvbar_set_entry(cpu, __pa_symbol(cpu_resume));
+}
+EXPORT_SYMBOL_GPL(apple_rvbar_set_resume_entry);
 
 static int apple_rvbar_cpu_boot(unsigned int cpu)
 {
@@ -153,6 +162,7 @@ void __noreturn apple_rvbar_core_off(bool deep)
 		write_sysreg_s(1, SYS_APL_IPI_SR_EL1);
 	}
 }
+EXPORT_SYMBOL_GPL(apple_rvbar_core_off);
 
 #ifdef CONFIG_HOTPLUG_CPU
 static bool apple_rvbar_cpu_can_disable(unsigned int cpu)
