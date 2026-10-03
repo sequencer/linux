@@ -39,6 +39,8 @@
 
 #include <asm/cacheflush.h>
 #include <asm/cpu_ops.h>
+#include <asm/kexec.h>
+#include <asm/mmu_context.h>
 #include <asm/smp_apple_rvbar.h>
 #include <asm/smp_plat.h>
 #include <asm/suspend.h>
@@ -220,6 +222,26 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
 }
 
 /*
+ * A powered-down core does not always lose power on J713 (impl +0x100 stays
+ * active, cpu_kill -ETIMEDOUT, 2026-10-03). Woken by cpu_boot's IPI with its
+ * slot filled, it then takes the reset path itself: MMU off through the idmap
+ * (cpu_soft_restart, as kexec) and into the slot's entry at EL2.
+ */
+static void apple_rvbar_restart_if_slot(void)
+{
+	struct rvbar_slot __iomem *slot = &rvbar_mailbox->slots[smp_processor_id()];
+	typeof(cpu_soft_restart) *restart;
+	u64 entry;
+
+	if (!(readq_relaxed(&slot->mpidr) & RVBAR_SLOT_VALID))
+		return;
+	entry = readq_relaxed(&slot->entry);
+	cpu_install_idmap();
+	restart = (void *)__pa_symbol(cpu_soft_restart);
+	restart(0, entry, 0, 0, 0);
+}
+
+/*
  * arm64_prepare_for_sleep (fffffe000bc31600): a core power-down sets
  * SIQ_CFG_EL1[1:0] to 3 and clears bit 0 of s3_1_c15_c7_4, each followed by
  * an isb; system sleep (@deep) sets bits 0 and 63 of s3_5_c15_c6_2; then WFI
@@ -250,6 +272,8 @@ void __noreturn apple_rvbar_core_off(bool deep)
 		isb();
 		wfi();
 		write_sysreg_s(1, SYS_APL_IPI_SR_EL1);
+		if (!deep)
+			apple_rvbar_restart_if_slot();
 	}
 }
 EXPORT_SYMBOL_GPL(apple_rvbar_core_off);
