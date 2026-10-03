@@ -35,6 +35,7 @@
 #include <linux/iopoll.h>
 #include <linux/of.h>
 #include <linux/smp.h>
+#include <linux/suspend.h>
 #include <linux/types.h>
 
 #include <asm/cacheflush.h>
@@ -298,11 +299,13 @@ static void apple_rvbar_cpu_die(unsigned int cpu)
 	dsb(sy);
 	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_STOP);
 	/*
-	 * ml_arm_sleep uses arm64_prepare_for_sleep(1), but XNU reaches it only
-	 * for system sleep: on a single core it took the J713 SoC down (reset,
-	 * then hang, 2026-10-03). A lone core uses the power-down variant (0).
+	 * ml_arm_sleep uses arm64_prepare_for_sleep(1), which XNU reaches for
+	 * system sleep: the secondaries go down that way before quiesceHW turns
+	 * their complexes off. Outside S2R it took the J713 SoC down (reset, then
+	 * hang, 2026-10-03), so a lone hotplugged core uses the power-down
+	 * variant (0).
 	 */
-	apple_rvbar_core_off(false);
+	apple_rvbar_core_off(pm_suspend_target_state == PM_SUSPEND_MEM);
 }
 
 static int apple_rvbar_cpu_kill(unsigned int cpu)
