@@ -388,4 +388,16 @@ impl<T: JobImpl> Scheduler<T> {
         // SAFETY: All fields of SchedulerInner are now initialized.
         Ok(Scheduler(unsafe { sched.assume_init() }.into()))
     }
+
+    /// Stops the submission work queue: no further `run_job` until [`Self::wqueue_start`].
+    pub fn wqueue_stop(&self) {
+        // SAFETY: The scheduler was initialized in `new` and lives as long as `self`.
+        unsafe { bindings::drm_sched_wqueue_stop(addr_of!(self.0.sched).cast_mut()) };
+    }
+
+    /// Restarts the submission work queue stopped by [`Self::wqueue_stop`].
+    pub fn wqueue_start(&self) {
+        // SAFETY: The scheduler was initialized in `new` and lives as long as `self`.
+        unsafe { bindings::drm_sched_wqueue_start(addr_of!(self.0.sched).cast_mut()) };
+    }
 }

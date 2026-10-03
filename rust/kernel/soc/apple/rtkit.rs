@@ -261,6 +261,19 @@ impl<T: Operations> RtKit<T> {
         to_result(unsafe { bindings::apple_rtkit_boot(self.rtk) })
     }
 
+    /// Requests AP and then IOP power state IDLE (0x201), waiting for each ack.
+    pub fn idle(self: Pin<&mut Self>) -> Result {
+        // SAFETY: `rtk` is valid per the type invariant.
+        to_result(unsafe { bindings::apple_rtkit_idle(self.rtk) })
+    }
+
+    /// Stops and restarts the mailbox, frees the firmware-requested buffers and
+    /// forgets the endpoint map, ready for a coprocessor restart and `boot`.
+    pub fn reinit(self: Pin<&mut Self>) -> Result {
+        // SAFETY: `rtk` is valid per the type invariant.
+        to_result(unsafe { bindings::apple_rtkit_reinit(self.rtk) })
+    }
+
     /// Quiesces the host interface and puts the coprocessor to sleep.
     /// Callers must retain firmware-accessible memory if this fails.
     pub fn shutdown(self: Pin<&mut Self>) -> Result {
