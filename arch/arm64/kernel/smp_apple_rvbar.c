@@ -57,6 +57,7 @@ struct rvbar_mailbox {
 
 /* arm64_prepare_for_sleep's system registers. */
 #define SYS_APL_SIQ_CFG_EL1	sys_reg(3, 4, 15, 10, 4)
+#define SYS_APL_CORE_OFF_EL1	sys_reg(3, 1, 15, 7, 4)
 #define SYS_APL_SLEEP_EL1	sys_reg(3, 5, 15, 6, 2)
 #define SYS_APL_IPI_SR_EL1	sys_reg(3, 5, 15, 1, 1)
 
@@ -162,11 +163,13 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
 }
 
 /*
- * arm64_prepare_for_sleep: a core power-down sets SIQ_CFG_EL1[1:0] to 3 and
- * clears bit 0 of s3_1_c15_c7_4, system sleep (@deep) sets bits 0 and 63 of
- * s3_5_c15_c6_2; then WFI until the power goes, acknowledging the fast IPI
- * after each spurious wake. XNU runs it at EL1; at EL2 the s3_1_c15_c7_4
- * write is UNDEFINED (ESR EC 0 on J713), so it is left out here.
+ * arm64_prepare_for_sleep (fffffe000bc31600): a core power-down sets
+ * SIQ_CFG_EL1[1:0] to 3 and clears bit 0 of s3_1_c15_c7_4, each followed by
+ * an isb; system sleep (@deep) sets bits 0 and 63 of s3_5_c15_c6_2; then WFI
+ * until the power goes, acknowledging the fast IPI after each spurious wake.
+ * Under Linux (EL2, VHE) s3_1_c15_c7_4 is accessible and reads 0x6 on J713,
+ * bit 0 already clear: the clear is kept as XNU does it. NO EFFECT on the
+ * value (unverified for side effects). m1n1 (EL2 without E2H) traps it.
  */
 void __noreturn apple_rvbar_core_off(bool deep)
 {
@@ -174,6 +177,8 @@ void __noreturn apple_rvbar_core_off(bool deep)
 		sysreg_clear_set_s(SYS_APL_SLEEP_EL1, 0, BIT(0) | BIT(63));
 	} else {
 		sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
+		isb();
+		sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
 		isb();
 	}
 
