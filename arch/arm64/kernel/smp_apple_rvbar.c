@@ -6,8 +6,10 @@
  * iBoot locks every core's RVBAR to m1n1's vectors. m1n1 keeps its vectors,
  * a reset dispatcher and a mailbox in a page it reserves for us: a core that
  * comes out of reset finds its {MPIDR | valid, entry} slot and jumps to the
- * entry at EL2 with the MMU off. The same mailbox brings the boot CPU back
- * from S2R.
+ * entry at EL2 with the MMU off. A secondary's first start goes through
+ * m1n1's spin table (cpu-release-addr), where it is parked from boot; later
+ * starts, after the OS powered it off, and the boot CPU's wake from S2R go
+ * through the mailbox.
  *
  * Core power follows macOS 27.0 (26A428): ApplePMGR::configMiscCores
  * (kernelcache fffffe0009b947f4) powers a core on by writing its bit to the
@@ -23,6 +25,7 @@
 #include <linux/smp.h>
 #include <linux/types.h>
 
+#include <asm/cacheflush.h>
 #include <asm/cpu_ops.h>
 #include <asm/smp_apple_rvbar.h>
 #include <asm/smp_plat.h>
@@ -54,7 +57,6 @@ struct rvbar_mailbox {
 
 /* arm64_prepare_for_sleep's system registers. */
 #define SYS_APL_SIQ_CFG_EL1	sys_reg(3, 4, 15, 10, 4)
-#define SYS_APL_CORE_PD_EL1	sys_reg(3, 1, 15, 7, 4)
 #define SYS_APL_SLEEP_EL1	sys_reg(3, 5, 15, 6, 2)
 #define SYS_APL_IPI_SR_EL1	sys_reg(3, 5, 15, 1, 1)
 
@@ -67,6 +69,8 @@ static struct {
 	u32 core;
 	phys_addr_t impl_pa;
 	void __iomem *impl;
+	u64 release_addr;
+	bool powered_off;
 } rvbar_cpus[NR_CPUS];
 
 static int __init apple_rvbar_cpu_init(unsigned int cpu)
@@ -92,6 +96,7 @@ static int __init apple_rvbar_cpu_init(unsigned int cpu)
 	ret = of_property_read_u32_index(dn, "apple,pmgr-cpu", 0, &rvbar_cpus[cpu].cluster) ?:
 	      of_property_read_u32_index(dn, "apple,pmgr-cpu", 1, &rvbar_cpus[cpu].core) ?:
 	      of_property_read_u64(dn, "apple,cpu-impl-reg", &impl);
+	of_property_read_u64(dn, "cpu-release-addr", &rvbar_cpus[cpu].release_addr);
 	of_node_put(dn);
 	rvbar_cpus[cpu].impl_pa = impl;
 	return ret;
@@ -127,9 +132,27 @@ void apple_rvbar_set_resume_entry(unsigned int cpu)
 }
 EXPORT_SYMBOL_GPL(apple_rvbar_set_resume_entry);
 
+/* First start: release the core from m1n1's spin table like spin-table does. */
+static int apple_rvbar_spin_release(unsigned int cpu)
+{
+	__le64 __iomem *release = ioremap_cache(rvbar_cpus[cpu].release_addr, sizeof(*release));
+
+	if (!release)
+		return -ENOMEM;
+	writeq_relaxed(__pa_symbol(secondary_entry), release);
+	dcache_clean_inval_poc((__force unsigned long)release,
+			       (__force unsigned long)release + sizeof(*release));
+	iounmap(release);
+	sev();
+	return 0;
+}
+
 static int apple_rvbar_cpu_boot(unsigned int cpu)
 {
 	u32 cluster = rvbar_cpus[cpu].cluster, core = rvbar_cpus[cpu].core;
+
+	if (!rvbar_cpus[cpu].powered_off)
+		return apple_rvbar_spin_release(cpu);
 
 	apple_rvbar_set_entry(cpu, __pa_symbol(secondary_entry));
 
@@ -142,7 +165,8 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
  * arm64_prepare_for_sleep: a core power-down sets SIQ_CFG_EL1[1:0] to 3 and
  * clears bit 0 of s3_1_c15_c7_4, system sleep (@deep) sets bits 0 and 63 of
  * s3_5_c15_c6_2; then WFI until the power goes, acknowledging the fast IPI
- * after each spurious wake.
+ * after each spurious wake. XNU runs it at EL1; at EL2 the s3_1_c15_c7_4
+ * write is UNDEFINED (ESR EC 0 on J713), so it is left out here.
  */
 void __noreturn apple_rvbar_core_off(bool deep)
 {
@@ -150,8 +174,6 @@ void __noreturn apple_rvbar_core_off(bool deep)
 		sysreg_clear_set_s(SYS_APL_SLEEP_EL1, 0, BIT(0) | BIT(63));
 	} else {
 		sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
-		isb();
-		sysreg_clear_set_s(SYS_APL_CORE_PD_EL1, BIT(0), 0);
 		isb();
 	}
 
@@ -180,6 +202,7 @@ static void apple_rvbar_cpu_die(unsigned int cpu)
 {
 	u32 cluster = rvbar_cpus[cpu].cluster, core = rvbar_cpus[cpu].core;
 
+	rvbar_cpus[cpu].powered_off = true;
 	writel(BIT(4 * cluster + core), rvbar_cpu_start + CPU_START_STOP);
 	apple_rvbar_core_off(false);
 }
