@@ -9,7 +9,9 @@
  * entry at EL2 with the MMU off. A secondary's first start goes through
  * m1n1's spin table (cpu-release-addr), where it is parked from boot; later
  * starts, after the OS powered it off, and the boot CPU's wake from S2R go
- * through the mailbox.
+ * through the mailbox. Linux sets the mailbox magic when it maps it, so a
+ * core that resets without a slot (powered off, woken early) waits in the
+ * dispatcher's WFE instead of entering m1n1, whose memory Linux now owns.
  *
  * Core power follows macOS 27.0 (26A428). The "Core" platform function
  * (ADT function-enable_core, mask 1 << cpu-id) reaches
@@ -131,6 +133,8 @@ static int apple_rvbar_cpu_prepare(unsigned int cpu)
 		rvbar_cpu_start = ioremap(rvbar_cpu_start_pa, CPU_START_CORE(8));
 		if (!rvbar_mailbox || !rvbar_cpu_start)
 			return -ENOMEM;
+		/* From here every reset is the OS's: m1n1's memory belongs to Linux. */
+		writeq(RVBAR_MAILBOX_MAGIC, &rvbar_mailbox->magic);
 	}
 	rvbar_cpus[cpu].impl = ioremap(rvbar_cpus[cpu].impl_pa, CPU_IMPL_PWR + 4);
 	rvbar_cpus[cpu].coresight = ioremap(rvbar_cpus[cpu].coresight_pa, CORESIGHT_LAR + 4);
@@ -184,6 +188,9 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
 		return apple_rvbar_spin_release(cpu);
 
 	apple_rvbar_set_entry(cpu, __pa_symbol(secondary_entry));
+	/* A core that already woke waits in the dispatcher's WFE for its slot. */
+	dsb(sy);
+	sev();
 
 	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_SYS);
 	writel(BIT(core), rvbar_cpu_start + CPU_START_CORE(cluster));
@@ -240,6 +247,9 @@ static int apple_rvbar_cpu_disable(unsigned int cpu)
 static void apple_rvbar_cpu_die(unsigned int cpu)
 {
 	rvbar_cpus[cpu].powered_off = true;
+	/* Any reset before the next cpu_boot parks in the dispatcher. */
+	writeq(0, &rvbar_mailbox->slots[cpu].mpidr);
+	dsb(sy);
 	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_STOP);
 	/* ml_arm_sleep calls arm64_prepare_for_sleep(1) for a core going down. */
 	apple_rvbar_core_off(true);
