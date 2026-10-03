@@ -29,6 +29,7 @@
  * then calls arm64_prepare_for_sleep(1) (fffffe000be07e80..e98).
  */
 
+#include <linux/bitfield.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -76,6 +77,11 @@ struct rvbar_mailbox {
 #define SYS_APL_CORE_OFF_EL1	sys_reg(3, 1, 15, 7, 4)
 #define SYS_APL_SLEEP_EL1	sys_reg(3, 5, 15, 6, 2)
 #define SYS_APL_IPI_SR_EL1	sys_reg(3, 5, 15, 1, 1)
+/* Fast IPI request registers (irq-apple-aic). */
+#define SYS_APL_IPI_RR_LOCAL_EL1	sys_reg(3, 5, 15, 0, 0)
+#define SYS_APL_IPI_RR_GLOBAL_EL1	sys_reg(3, 5, 15, 0, 1)
+#define IPI_RR_CPU		GENMASK(7, 0)
+#define IPI_RR_CLUSTER		GENMASK(23, 16)
 
 static phys_addr_t rvbar_mailbox_pa, rvbar_cpu_start_pa;
 static struct rvbar_mailbox __iomem *rvbar_mailbox;
@@ -194,6 +200,22 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
 
 	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_SYS);
 	writel(BIT(core), rvbar_cpu_start + CPU_START_CORE(cluster));
+
+	/*
+	 * A core that went down through arm64_prepare_for_sleep(0) is power-gated
+	 * like an idle core and comes back through RVBAR on an interrupt; an
+	 * immediate fast IPI wakes it (inferred from the idle wake path: PMGR start
+	 * alone left E0 down on J713, 2026-10-03).
+	 */
+	if (MPIDR_AFFINITY_LEVEL(read_cpuid_mpidr(), 1) ==
+	    MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1))
+		write_sysreg_s(FIELD_PREP(IPI_RR_CPU, MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 0)),
+			       SYS_APL_IPI_RR_LOCAL_EL1);
+	else
+		write_sysreg_s(FIELD_PREP(IPI_RR_CPU, MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 0)) |
+			       FIELD_PREP(IPI_RR_CLUSTER, MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1)),
+			       SYS_APL_IPI_RR_GLOBAL_EL1);
+	isb();
 	return 0;
 }
 
@@ -251,8 +273,12 @@ static void apple_rvbar_cpu_die(unsigned int cpu)
 	writeq(0, &rvbar_mailbox->slots[cpu].mpidr);
 	dsb(sy);
 	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_STOP);
-	/* ml_arm_sleep calls arm64_prepare_for_sleep(1) for a core going down. */
-	apple_rvbar_core_off(true);
+	/*
+	 * ml_arm_sleep uses arm64_prepare_for_sleep(1), but XNU reaches it only
+	 * for system sleep: on a single core it took the J713 SoC down (reset,
+	 * then hang, 2026-10-03). A lone core uses the power-down variant (0).
+	 */
+	apple_rvbar_core_off(false);
 }
 
 static int apple_rvbar_cpu_kill(unsigned int cpu)
