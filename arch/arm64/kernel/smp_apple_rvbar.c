@@ -11,11 +11,20 @@
  * starts, after the OS powered it off, and the boot CPU's wake from S2R go
  * through the mailbox.
  *
- * Core power follows macOS 27.0 (26A428): ApplePMGR::configMiscCores
- * (kernelcache fffffe0009b947f4) powers a core on by writing its bit to the
- * CPU start block at +0x4 (1 << (4 * cluster + core)) and +0x8 + 4 * cluster
- * (1 << core), and off by writing 1 << (4 * cluster + core) to +0x0. The
- * dying core then runs arm64_prepare_for_sleep (fffffe000bc31600).
+ * Core power follows macOS 27.0 (26A428). The "Core" platform function
+ * (ADT function-enable_core, mask 1 << cpu-id) reaches
+ * ApplePMGR::configMiscCores (kernelcache fffffe0009b947f4). On J713 the pmgr
+ * "clusters" property is {6, 4} with no shifts, so the core bits are packed
+ * per cluster with a stride of the largest cluster (initDriver
+ * fffffe0009b7bf7c..bfa8): a core's bit is cluster * stride + core
+ * (fffffe0009b94b88..bcc). Power on writes the packed bit to +0x4 and
+ * 1 << core to +0x8 + 4 * cluster (fffffe0009b94bd0..c84); power off writes
+ * the packed bit to +0x0 (fffffe0009b94c8c..ecc).
+ *
+ * AppleARMCPU::quiesceCPU (fffffe0008c6eafc) disables the core in PMGR and
+ * tail-calls ml_arm_sleep (fffffe000be07d68), which unlocks the core's
+ * CoreSight debug block (LAR +0xfb0 = 0xc5acce55) and clears EDPRCR (+0x310),
+ * then calls arm64_prepare_for_sleep(1) (fffffe000be07e80..e98).
  */
 
 #include <linux/delay.h>
@@ -51,6 +60,11 @@ struct rvbar_mailbox {
 #define CPU_START_SYS		0x4
 #define CPU_START_CORE(cl)	(0x8 + 4 * (cl))
 
+/* CoreSight external debug: lock access and EDPRCR (ml_arm_sleep). */
+#define CORESIGHT_LAR		0xfb0
+#define CORESIGHT_LAR_KEY	0xc5acce55
+#define CORESIGHT_EDPRCR	0x310
+
 /* cpu-impl-reg + 0x100: non-zero low byte while the core is powered (m1n1 smp_stop_cpu). */
 #define CPU_IMPL_PWR		0x100
 #define CPU_IMPL_PWR_ON		GENMASK(7, 0)
@@ -64,12 +78,16 @@ struct rvbar_mailbox {
 static phys_addr_t rvbar_mailbox_pa, rvbar_cpu_start_pa;
 static struct rvbar_mailbox __iomem *rvbar_mailbox;
 static void __iomem *rvbar_cpu_start;
+/* Bit stride of a cluster in the packed start/stop mask: its largest core count. */
+static u32 rvbar_cluster_stride;
 
 static struct {
 	u32 cluster;
 	u32 core;
 	phys_addr_t impl_pa;
 	void __iomem *impl;
+	phys_addr_t coresight_pa;
+	void __iomem *coresight;
 	u64 release_addr;
 	bool powered_off;
 } rvbar_cpus[NR_CPUS];
@@ -77,7 +95,7 @@ static struct {
 static int __init apple_rvbar_cpu_init(unsigned int cpu)
 {
 	struct device_node *dn, *mb;
-	u64 impl;
+	u64 impl, coresight;
 	int ret;
 
 	if (!rvbar_mailbox_pa) {
@@ -96,10 +114,13 @@ static int __init apple_rvbar_cpu_init(unsigned int cpu)
 		return -ENODEV;
 	ret = of_property_read_u32_index(dn, "apple,pmgr-cpu", 0, &rvbar_cpus[cpu].cluster) ?:
 	      of_property_read_u32_index(dn, "apple,pmgr-cpu", 1, &rvbar_cpus[cpu].core) ?:
-	      of_property_read_u64(dn, "apple,cpu-impl-reg", &impl);
+	      of_property_read_u64(dn, "apple,cpu-impl-reg", &impl) ?:
+	      of_property_read_u64(dn, "apple,coresight-reg", &coresight);
 	of_property_read_u64(dn, "cpu-release-addr", &rvbar_cpus[cpu].release_addr);
 	of_node_put(dn);
 	rvbar_cpus[cpu].impl_pa = impl;
+	rvbar_cpus[cpu].coresight_pa = coresight;
+	rvbar_cluster_stride = max(rvbar_cluster_stride, rvbar_cpus[cpu].core + 1);
 	return ret;
 }
 
@@ -112,7 +133,8 @@ static int apple_rvbar_cpu_prepare(unsigned int cpu)
 			return -ENOMEM;
 	}
 	rvbar_cpus[cpu].impl = ioremap(rvbar_cpus[cpu].impl_pa, CPU_IMPL_PWR + 4);
-	return rvbar_cpus[cpu].impl ? 0 : -ENOMEM;
+	rvbar_cpus[cpu].coresight = ioremap(rvbar_cpus[cpu].coresight_pa, CORESIGHT_LAR + 4);
+	return rvbar_cpus[cpu].impl && rvbar_cpus[cpu].coresight ? 0 : -ENOMEM;
 }
 
 /* Point @cpu's mailbox slot at @entry for its next reset. */
@@ -148,6 +170,12 @@ static int apple_rvbar_spin_release(unsigned int cpu)
 	return 0;
 }
 
+/* The core's bit in the packed start (+0x4) and stop (+0x0) masks. */
+static u32 apple_rvbar_core_bit(unsigned int cpu)
+{
+	return BIT(rvbar_cpus[cpu].cluster * rvbar_cluster_stride + rvbar_cpus[cpu].core);
+}
+
 static int apple_rvbar_cpu_boot(unsigned int cpu)
 {
 	u32 cluster = rvbar_cpus[cpu].cluster, core = rvbar_cpus[cpu].core;
@@ -157,7 +185,7 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
 
 	apple_rvbar_set_entry(cpu, __pa_symbol(secondary_entry));
 
-	writel(BIT(4 * cluster + core), rvbar_cpu_start + CPU_START_SYS);
+	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_SYS);
 	writel(BIT(core), rvbar_cpu_start + CPU_START_CORE(cluster));
 	return 0;
 }
@@ -173,6 +201,12 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
  */
 void __noreturn apple_rvbar_core_off(bool deep)
 {
+	void __iomem *coresight = rvbar_cpus[smp_processor_id()].coresight;
+
+	/* ml_arm_sleep (fffffe000be07e78..e90) before arm64_prepare_for_sleep. */
+	writel_relaxed(CORESIGHT_LAR_KEY, coresight + CORESIGHT_LAR);
+	writel_relaxed(0, coresight + CORESIGHT_EDPRCR);
+
 	if (deep) {
 		sysreg_clear_set_s(SYS_APL_SLEEP_EL1, 0, BIT(0) | BIT(63));
 	} else {
@@ -202,14 +236,13 @@ static int apple_rvbar_cpu_disable(unsigned int cpu)
 	return 0;
 }
 
-/* AppleARMCPU::quiesceCPU -> ApplePMGR disableCPUCore, then arm64_prepare_for_sleep. */
+/* AppleARMCPU::quiesceCPU -> ApplePMGR disableCPUCore, then ml_arm_sleep. */
 static void apple_rvbar_cpu_die(unsigned int cpu)
 {
-	u32 cluster = rvbar_cpus[cpu].cluster, core = rvbar_cpus[cpu].core;
-
 	rvbar_cpus[cpu].powered_off = true;
-	writel(BIT(4 * cluster + core), rvbar_cpu_start + CPU_START_STOP);
-	apple_rvbar_core_off(false);
+	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_STOP);
+	/* ml_arm_sleep calls arm64_prepare_for_sleep(1) for a core going down. */
+	apple_rvbar_core_off(true);
 }
 
 static int apple_rvbar_cpu_kill(unsigned int cpu)
