@@ -29,9 +29,9 @@
  * CoreSight debug block (LAR +0xfb0, EDPRCR +0x310) first only when
  * cpu_data->coresight_base[ED] is mapped (fffffe000be07e78..e90), which XNU
  * does only when /chosen effective-production-status-ap is 0
- * (fffffe000be07fc4..803c); J713 reads 1. The cores still write it under this
- * boot chain (apple_rvbar_core_off): without it a core taken down did not
- * come back.
+ * (fffffe000be07fc4..803c). J713 reads 1: no CoreSight write. Writing it
+ * anyway raised an L2C error on that LAR (L2C_ERR_ADR 0x211310fb0,
+ * cpu9 going down in S2R, 2026-10-04).
  */
 
 #include <linux/bitfield.h>
@@ -76,11 +76,6 @@ struct rvbar_mailbox {
 #define CPU_IMPL_PWR		0x100
 #define CPU_IMPL_PWR_ON		GENMASK(7, 0)
 
-/* CoreSight external debug of a core (apple,coresight-reg): lock access and EDPRCR. */
-#define CORESIGHT_LAR		0xfb0
-#define CORESIGHT_LAR_KEY	0xc5acce55
-#define CORESIGHT_EDPRCR	0x310
-
 /* arm64_prepare_for_sleep's system registers. */
 #define SYS_APL_SIQ_CFG_EL1	sys_reg(3, 4, 15, 10, 4)
 #define SYS_APL_CORE_OFF_EL1	sys_reg(3, 1, 15, 7, 4)
@@ -113,8 +108,6 @@ static struct {
 	u32 core;
 	phys_addr_t impl_pa;
 	void __iomem *impl;
-	phys_addr_t coresight_pa;
-	void __iomem *coresight;
 	u64 release_addr;
 	bool powered_off;
 } rvbar_cpus[NR_CPUS];
@@ -122,7 +115,7 @@ static struct {
 static int __init apple_rvbar_cpu_init(unsigned int cpu)
 {
 	struct device_node *dn, *mb;
-	u64 impl, coresight = 0;
+	u64 impl;
 	int ret;
 
 	if (!rvbar_mailbox_pa) {
@@ -143,10 +136,8 @@ static int __init apple_rvbar_cpu_init(unsigned int cpu)
 	      of_property_read_u32_index(dn, "apple,pmgr-cpu", 1, &rvbar_cpus[cpu].core) ?:
 	      of_property_read_u64(dn, "apple,cpu-impl-reg", &impl);
 	of_property_read_u64(dn, "cpu-release-addr", &rvbar_cpus[cpu].release_addr);
-	of_property_read_u64(dn, "apple,coresight-reg", &coresight);
 	of_node_put(dn);
 	rvbar_cpus[cpu].impl_pa = impl;
-	rvbar_cpus[cpu].coresight_pa = coresight;
 	rvbar_cluster_stride = max(rvbar_cluster_stride, rvbar_cpus[cpu].core + 1);
 	return ret;
 }
@@ -162,11 +153,7 @@ static int apple_rvbar_cpu_prepare(unsigned int cpu)
 		writeq(RVBAR_MAILBOX_MAGIC, &rvbar_mailbox->magic);
 	}
 	rvbar_cpus[cpu].impl = ioremap(rvbar_cpus[cpu].impl_pa, CPU_IMPL_PWR + 4);
-	if (!rvbar_cpus[cpu].impl)
-		return -ENOMEM;
-	if (rvbar_cpus[cpu].coresight_pa)
-		rvbar_cpus[cpu].coresight = ioremap(rvbar_cpus[cpu].coresight_pa, 0x1000);
-	return 0;
+	return rvbar_cpus[cpu].impl ? 0 : -ENOMEM;
 }
 
 /* Point @cpu's mailbox slot at @entry for its next reset. */
@@ -299,21 +286,6 @@ void __noreturn apple_rvbar_core_off(bool sleep)
 	 * core loses power either way and comes back through RVBAR and its slot
 	 * (cpu_resume for the boot CPU, apple_rvbar_set_resume_entry).
 	 */
-	/*
-	 * ml_arm_sleep (fffffe000be07e78..e90): unlock the core's own CoreSight
-	 * block and clear EDPRCR (its power-down request override) before the
-	 * power-down. XNU does it only on non-production parts, where it maps
-	 * coresight_base; under this boot chain a core taken down without it
-	 * never came back up and hung the system (CPU2 hotplug, J713
-	 * 2026-10-04), while hotplug with it worked (2026-10-03).
-	 */
-	if (rvbar_cpus[smp_processor_id()].coresight) {
-		void __iomem *cs = rvbar_cpus[smp_processor_id()].coresight;
-
-		writel_relaxed(CORESIGHT_LAR_KEY, cs + CORESIGHT_LAR);
-		writel_relaxed(0, cs + CORESIGHT_EDPRCR);
-	}
-
 	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
 	isb();
 	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
