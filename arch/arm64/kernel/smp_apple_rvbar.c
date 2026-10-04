@@ -87,7 +87,6 @@ struct rvbar_mailbox {
 #define IPI_RR_CPU		GENMASK(7, 0)
 #define IPI_RR_CLUSTER		GENMASK(23, 16)
 
-extern char apple_rvbar_el1_vectors[], apple_rvbar_el1_sleep[];
 extern char apple_rvbar_el1_probe_vectors[], apple_rvbar_el1_probe[];
 
 /*
@@ -256,10 +255,8 @@ static void apple_rvbar_restart_if_slot(void)
  * until the power goes, acknowledging the fast IPI after each spurious wake.
  * Under Linux (EL2, VHE) s3_1_c15_c7_4 reads 0x6 on J713, bit 0 already
  * clear, so the clear writes nothing. The system-sleep write is UNDEFINED at
- * EL2 (ESR EC 0; a debugfs write-back of its value 0, 2026-10-04), so for
- * system sleep (@sleep) the core enters EL1 (HCR_EL2.TGE clear, MMU off,
- * DAIF masked) and runs XNU's sequence there (apple_rvbar_el1.S); it next
- * runs from RVBAR at EL2.
+ * EL2 (ESR EC 0; a debugfs write-back of its value 0, 2026-10-04) and at EL1
+ * (apple_rvbar_el1_probe), so for system sleep (@sleep) it is left out.
  */
 /* Enter @entry at EL1 (TGE clear, MMU off, DAIF masked) with x1 = @x1. */
 static void __noreturn apple_rvbar_enter_el1(void *vectors, void *entry, u64 x1)
@@ -278,13 +275,21 @@ static void __noreturn apple_rvbar_enter_el1(void *vectors, void *entry, u64 x1)
 
 void __noreturn apple_rvbar_core_off(bool sleep)
 {
-	if (sleep)
-		apple_rvbar_enter_el1(apple_rvbar_el1_vectors, apple_rvbar_el1_sleep, 0);
-
-	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
-	isb();
-	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
-	isb();
+	/*
+	 * System sleep: arm64_prepare_for_sleep(1) writes only s3_5_c15_c6_2
+	 * before the WFI, no SIQ_CFG/CORE_OFF. That write UNDEFs at EL1 as well
+	 * as at EL2 on J713 (apple_rvbar_el1_probe mode 4, 2026-10-04), so the
+	 * core goes straight to the WFI loop. There it stays restartable: an
+	 * aborted suspend brings it back through cpu_boot's slot and IPI, and the
+	 * boot CPU's slot holds cpu_resume (apple_rvbar_set_resume_entry). Parked
+	 * at EL1 it could not, and the aborted suspend locked up (J713 cycle 30).
+	 */
+	if (!sleep) {
+		sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
+		isb();
+		sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
+		isb();
+	}
 
 	for (;;) {
 		dsb(sy);
