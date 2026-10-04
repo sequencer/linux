@@ -88,6 +88,15 @@ struct rvbar_mailbox {
 #define IPI_RR_CLUSTER		GENMASK(23, 16)
 
 extern char apple_rvbar_el1_vectors[], apple_rvbar_el1_sleep[];
+extern char apple_rvbar_el1_probe_vectors[], apple_rvbar_el1_probe[];
+
+/*
+ * Debug (J713, 2026-10-04): the physical address of a zeroed report block
+ * (apple_rvbar_el1.S); the next core taken offline outside S2R enters
+ * apple_rvbar_el1_probe at EL1 with it, then stays in WFI there.
+ */
+phys_addr_t apple_rvbar_el1_probe_pa;
+EXPORT_SYMBOL_GPL(apple_rvbar_el1_probe_pa);
 
 static phys_addr_t rvbar_mailbox_pa, rvbar_cpu_start_pa;
 static struct rvbar_mailbox __iomem *rvbar_mailbox;
@@ -252,18 +261,25 @@ static void apple_rvbar_restart_if_slot(void)
  * DAIF masked) and runs XNU's sequence there (apple_rvbar_el1.S); it next
  * runs from RVBAR at EL2.
  */
+/* Enter @entry at EL1 (TGE clear, MMU off, DAIF masked) with x1 = @x1. */
+static void __noreturn apple_rvbar_enter_el1(void *vectors, void *entry, u64 x1)
+{
+	register u64 r1 asm("x1") = x1;
+
+	write_sysreg_s(__pa_symbol(vectors), SYS_VBAR_EL12);
+	write_sysreg_s(INIT_SCTLR_EL1_MMU_OFF, sys_reg(3, 5, 1, 0, 0));	/* SCTLR_EL12 */
+	write_sysreg(PSR_MODE_EL1h | PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT, spsr_el2);
+	write_sysreg(__pa_symbol(entry), elr_el2);
+	write_sysreg(read_sysreg(hcr_el2) & ~HCR_TGE, hcr_el2);
+	isb();
+	asm volatile("eret" : : "r" (r1));
+	unreachable();
+}
+
 void __noreturn apple_rvbar_core_off(bool sleep)
 {
-	if (sleep) {
-		write_sysreg_s(__pa_symbol(apple_rvbar_el1_vectors), SYS_VBAR_EL12);
-		write_sysreg_s(INIT_SCTLR_EL1_MMU_OFF, sys_reg(3, 5, 1, 0, 0));	/* SCTLR_EL12 */
-		write_sysreg(PSR_MODE_EL1h | PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT, spsr_el2);
-		write_sysreg(__pa_symbol(apple_rvbar_el1_sleep), elr_el2);
-		write_sysreg(read_sysreg(hcr_el2) & ~HCR_TGE, hcr_el2);
-		isb();
-		asm volatile("eret");
-		unreachable();
-	}
+	if (sleep)
+		apple_rvbar_enter_el1(apple_rvbar_el1_vectors, apple_rvbar_el1_sleep, 0);
 
 	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
 	isb();
@@ -306,6 +322,9 @@ static void apple_rvbar_cpu_die(unsigned int cpu)
 	 * before its own sleep. In S2R that is the system-sleep variant, taken at
 	 * EL1 (apple_rvbar_core_off).
 	 */
+	if (pm_suspend_target_state != PM_SUSPEND_MEM && READ_ONCE(apple_rvbar_el1_probe_pa))
+		apple_rvbar_enter_el1(apple_rvbar_el1_probe_vectors, apple_rvbar_el1_probe,
+				      xchg(&apple_rvbar_el1_probe_pa, 0));
 	apple_rvbar_core_off(pm_suspend_target_state == PM_SUSPEND_MEM);
 }
 
