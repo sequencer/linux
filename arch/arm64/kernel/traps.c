@@ -929,6 +929,26 @@ void __noreturn panic_bad_stack(struct pt_regs *regs, unsigned long esr, unsigne
 	cpu_park_loop();
 }
 
+/*
+ * Debug (J713 S2R, 2026-10-04): the Apple error status registers m1n1 prints
+ * for an SError (exception.c print_regs), E-core set for MIDR part 0x52
+ * (Donan E), P-core set otherwise.
+ */
+static void apple_serror_status(void)
+{
+	pr_crit("L2C_ERR_STS %016llx L2C_ERR_ADR %016llx L2C_ERR_INF %016llx\n",
+		read_sysreg_s(sys_reg(3, 3, 15, 8, 0)), read_sysreg_s(sys_reg(3, 3, 15, 9, 0)),
+		read_sysreg_s(sys_reg(3, 3, 15, 10, 0)));
+	if (MIDR_PARTNUM(read_cpuid_id()) == 0x52)
+		pr_crit("E_LSU_ERR_STS %016llx E_FED_ERR_STS %016llx E_MMU_ERR_STS %016llx\n",
+			read_sysreg_s(sys_reg(3, 3, 15, 2, 0)), read_sysreg_s(sys_reg(3, 4, 15, 0, 2)),
+			read_sysreg_s(sys_reg(3, 6, 15, 2, 0)));
+	else
+		pr_crit("LSU_ERR_STS %016llx FED_ERR_STS %016llx MMU_ERR_STS %016llx\n",
+			read_sysreg_s(sys_reg(3, 3, 15, 0, 0)), read_sysreg_s(sys_reg(3, 4, 15, 0, 0)),
+			read_sysreg_s(sys_reg(3, 6, 15, 0, 0)));
+}
+
 void __noreturn arm64_serror_panic(struct pt_regs *regs, unsigned long esr)
 {
 	add_taint(TAINT_MACHINE_CHECK, LOCKDEP_STILL_OK);
@@ -936,6 +956,7 @@ void __noreturn arm64_serror_panic(struct pt_regs *regs, unsigned long esr)
 
 	pr_crit("SError Interrupt on CPU%d, code 0x%016lx -- %s\n",
 		smp_processor_id(), esr, esr_get_class_string(esr));
+	apple_serror_status();
 	if (regs)
 		__show_regs(regs);
 
