@@ -24,9 +24,14 @@
  * the packed bit to +0x0 (fffffe0009b94c8c..ecc).
  *
  * AppleARMCPU::quiesceCPU (fffffe0008c6eafc) disables the core in PMGR and
- * tail-calls ml_arm_sleep (fffffe000be07d68), which unlocks the core's
- * CoreSight debug block (LAR +0xfb0 = 0xc5acce55) and clears EDPRCR (+0x310),
- * then calls arm64_prepare_for_sleep(1) (fffffe000be07e80..e98).
+ * tail-calls ml_arm_sleep (fffffe000be07d68), which calls
+ * arm64_prepare_for_sleep(1) (fffffe000be07e94..e98). It unlocks the core's
+ * CoreSight debug block (LAR +0xfb0, EDPRCR +0x310) first only when
+ * cpu_data->coresight_base[ED] is mapped (fffffe000be07e78..e90), which XNU
+ * does only when /chosen effective-production-status-ap is 0
+ * (fffffe000be07fc4..803c). J713 reads 1: no CoreSight write. Writing it
+ * anyway raised an L2C error on that LAR (L2C_ERR_ADR 0x211310fb0,
+ * cpu9 going down in S2R, 2026-10-04).
  */
 
 #include <linux/bitfield.h>
@@ -66,11 +71,6 @@ struct rvbar_mailbox {
 #define CPU_START_SYS		0x4
 #define CPU_START_CORE(cl)	(0x8 + 4 * (cl))
 
-/* CoreSight external debug: lock access and EDPRCR (ml_arm_sleep). */
-#define CORESIGHT_LAR		0xfb0
-#define CORESIGHT_LAR_KEY	0xc5acce55
-#define CORESIGHT_EDPRCR	0x310
-
 /* cpu-impl-reg + 0x100: non-zero low byte while the core is powered (m1n1 smp_stop_cpu). */
 #define CPU_IMPL_PWR		0x100
 #define CPU_IMPL_PWR_ON		GENMASK(7, 0)
@@ -97,8 +97,6 @@ static struct {
 	u32 core;
 	phys_addr_t impl_pa;
 	void __iomem *impl;
-	phys_addr_t coresight_pa;
-	void __iomem *coresight;
 	u64 release_addr;
 	bool powered_off;
 } rvbar_cpus[NR_CPUS];
@@ -106,7 +104,7 @@ static struct {
 static int __init apple_rvbar_cpu_init(unsigned int cpu)
 {
 	struct device_node *dn, *mb;
-	u64 impl, coresight;
+	u64 impl;
 	int ret;
 
 	if (!rvbar_mailbox_pa) {
@@ -125,12 +123,10 @@ static int __init apple_rvbar_cpu_init(unsigned int cpu)
 		return -ENODEV;
 	ret = of_property_read_u32_index(dn, "apple,pmgr-cpu", 0, &rvbar_cpus[cpu].cluster) ?:
 	      of_property_read_u32_index(dn, "apple,pmgr-cpu", 1, &rvbar_cpus[cpu].core) ?:
-	      of_property_read_u64(dn, "apple,cpu-impl-reg", &impl) ?:
-	      of_property_read_u64(dn, "apple,coresight-reg", &coresight);
+	      of_property_read_u64(dn, "apple,cpu-impl-reg", &impl);
 	of_property_read_u64(dn, "cpu-release-addr", &rvbar_cpus[cpu].release_addr);
 	of_node_put(dn);
 	rvbar_cpus[cpu].impl_pa = impl;
-	rvbar_cpus[cpu].coresight_pa = coresight;
 	rvbar_cluster_stride = max(rvbar_cluster_stride, rvbar_cpus[cpu].core + 1);
 	return ret;
 }
@@ -146,8 +142,7 @@ static int apple_rvbar_cpu_prepare(unsigned int cpu)
 		writeq(RVBAR_MAILBOX_MAGIC, &rvbar_mailbox->magic);
 	}
 	rvbar_cpus[cpu].impl = ioremap(rvbar_cpus[cpu].impl_pa, CPU_IMPL_PWR + 4);
-	rvbar_cpus[cpu].coresight = ioremap(rvbar_cpus[cpu].coresight_pa, CORESIGHT_LAR + 4);
-	return rvbar_cpus[cpu].impl && rvbar_cpus[cpu].coresight ? 0 : -ENOMEM;
+	return rvbar_cpus[cpu].impl ? 0 : -ENOMEM;
 }
 
 /* Point @cpu's mailbox slot at @entry for its next reset. */
@@ -256,12 +251,6 @@ static void apple_rvbar_restart_if_slot(void)
  */
 void __noreturn apple_rvbar_core_off(void)
 {
-	void __iomem *coresight = rvbar_cpus[smp_processor_id()].coresight;
-
-	/* ml_arm_sleep (fffffe000be07e78..e90) before arm64_prepare_for_sleep. */
-	writel_relaxed(CORESIGHT_LAR_KEY, coresight + CORESIGHT_LAR);
-	writel_relaxed(0, coresight + CORESIGHT_EDPRCR);
-
 	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
 	isb();
 	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
@@ -312,10 +301,12 @@ static int apple_rvbar_cpu_kill(unsigned int cpu)
 	u32 pwr;
 
 	/*
-	 * Also in S2R: returning at once there left CPU0 with an SError right
-	 * after CPU1 went down (S2R, 2026-10-04), while hotplugging CPU1..6 one by
-	 * one with this poll (each -ETIMEDOUT) runs clean.
+	 * AppleARMCPU::quiesceCPU (fffffe0008c6eafc) does not wait for the core
+	 * to lose power; in S2R the SoC sleep takes it down. (The SError once
+	 * blamed on returning at once was the CoreSight write, see above.)
 	 */
+	if (pm_suspend_target_state == PM_SUSPEND_MEM)
+		return 0;
 	return readl_poll_timeout(rvbar_cpus[cpu].impl + CPU_IMPL_PWR, pwr,
 				  !(pwr & CPU_IMPL_PWR_ON), 100, 50000);
 }
