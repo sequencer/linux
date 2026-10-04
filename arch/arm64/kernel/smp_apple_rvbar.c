@@ -88,6 +88,7 @@ struct rvbar_mailbox {
 #define IPI_RR_CLUSTER		GENMASK(23, 16)
 
 extern char apple_rvbar_el1_probe_vectors[], apple_rvbar_el1_probe[];
+void apple_rvbar_retention_wfi(void);
 
 /*
  * Debug (J713, 2026-10-04): the physical address of a zeroed report block
@@ -291,10 +292,14 @@ void __noreturn apple_rvbar_core_off(bool sleep)
 	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
 	isb();
 
+	/*
+	 * The core does not lose power here on J713: impl +0x100 reads 0f01d900
+	 * like an idle core in retention, and a bare WFI woken by cpu_boot (the
+	 * fast IPI, or the PMGR start alone) hung the SoC with the loop's
+	 * registers cleared (2026-10-04).
+	 */
 	for (;;) {
-		dsb(sy);
-		isb();
-		wfi();
+		apple_rvbar_retention_wfi();
 		write_sysreg_s(1, SYS_APL_IPI_SR_EL1);
 		apple_rvbar_restart_if_slot();
 	}
