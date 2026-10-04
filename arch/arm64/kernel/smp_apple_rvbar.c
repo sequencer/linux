@@ -312,11 +312,10 @@ static int apple_rvbar_cpu_kill(unsigned int cpu)
 	u32 pwr;
 
 	/*
-	 * AppleARMCPU::quiesceCPU does not wait for the core to lose power; in S2R
-	 * the SoC sleep takes it down.
+	 * Also in S2R: returning at once there left CPU0 with an SError right
+	 * after CPU1 went down (S2R, 2026-10-04), while hotplugging CPU1..6 one by
+	 * one with this poll (each -ETIMEDOUT) runs clean.
 	 */
-	if (pm_suspend_target_state == PM_SUSPEND_MEM)
-		return 0;
 	return readl_poll_timeout(rvbar_cpus[cpu].impl + CPU_IMPL_PWR, pwr,
 				  !(pwr & CPU_IMPL_PWR_ON), 100, 50000);
 }
