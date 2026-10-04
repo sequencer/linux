@@ -157,6 +157,12 @@ int apple_rtkit_quiesce(struct apple_rtkit *rtk);
 int apple_rtkit_wake(struct apple_rtkit *rtk);
 
 /*
+ * Expect the IOP's own power acknowledge after its CPU is restarted from
+ * system sleep; apple_rtkit_boot() then waits for it.
+ */
+void apple_rtkit_expect_iop_wake(struct apple_rtkit *rtk);
+
+/*
  * Shutdown the co-processor
  */
 int apple_rtkit_shutdown(struct apple_rtkit *rtk);

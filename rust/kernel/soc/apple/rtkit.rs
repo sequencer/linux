@@ -255,6 +255,13 @@ impl<T: Operations> RtKit<T> {
         to_result(unsafe { bindings::apple_rtkit_wake(self.rtk) })
     }
 
+    /// Expects the coprocessor's own power acknowledge after its CPU is
+    /// restarted from system sleep; [`Self::boot`] then waits for it.
+    pub fn expect_iop_wake(self: Pin<&mut Self>) {
+        // SAFETY: `rtk` is valid per the type invariant.
+        unsafe { bindings::apple_rtkit_expect_iop_wake(self.rtk) };
+    }
+
     /// Waits for the RTKit coprocessor to finish booting.
     pub fn boot(self: Pin<&mut Self>) -> Result {
         // SAFETY: `rtk` is valid per the type invariant.

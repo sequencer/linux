@@ -1137,6 +1137,20 @@ int apple_rtkit_wake(struct apple_rtkit *rtk)
 }
 EXPORT_SYMBOL_GPL(apple_rtkit_wake);
 
+/*
+ * macOS 27.0 RTBuddy::_performPowerStateChangeGated wake branch (K:b6ef268):
+ * _setIopStatus(4) before AppleA7IOP::startCPUWithOptions, then _iopValidate
+ * (K:b6efb78) waits for status 8, set by the IOP's power acknowledge
+ * (_handlePowerAck, K:b7024d0); no IOP power state message is sent. The AP
+ * state (0x20) follows from the route notification, as apple_rtkit_boot()
+ * does.
+ */
+void apple_rtkit_expect_iop_wake(struct apple_rtkit *rtk)
+{
+	reinit_completion(&rtk->iop_pwr_ack_completion);
+}
+EXPORT_SYMBOL_GPL(apple_rtkit_expect_iop_wake);
+
 void apple_rtkit_free(struct apple_rtkit *rtk)
 {
 	apple_mbox_stop(rtk->mbox);
