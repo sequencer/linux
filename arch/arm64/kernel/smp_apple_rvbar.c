@@ -101,16 +101,7 @@ static struct {
 	void __iomem *coresight;
 	u64 release_addr;
 	bool powered_off;
-	/* cpu_data +0x1dc sleep token of ml_arm_sleep: parked at the S2R gate. */
-	bool sleeping;
 } rvbar_cpus[NR_CPUS];
-
-/*
- * ml_arm_sleep's secondary hold (K:ca47dfc): a secondary going down for system
- * sleep waits on it with WFE until the boot CPU, in its own ml_arm_sleep,
- * clears it (K:be07df0).
- */
-static int rvbar_sleep_hold = 1;
 
 static int __init apple_rvbar_cpu_init(unsigned int cpu)
 {
@@ -205,8 +196,6 @@ static int apple_rvbar_cpu_boot(unsigned int cpu)
 	if (!rvbar_cpus[cpu].powered_off)
 		return apple_rvbar_spin_release(cpu);
 
-	rvbar_cpus[cpu].sleeping = false;
-	WRITE_ONCE(rvbar_sleep_hold, 1);
 	apple_rvbar_set_entry(cpu, __pa_symbol(secondary_entry));
 	/* A core that already woke waits in the dispatcher's WFE for its slot. */
 	dsb(sy);
@@ -256,13 +245,16 @@ static void apple_rvbar_restart_if_slot(void)
 /*
  * arm64_prepare_for_sleep (fffffe000bc31600): a core power-down sets
  * SIQ_CFG_EL1[1:0] to 3 and clears bit 0 of s3_1_c15_c7_4, each followed by
- * an isb; system sleep (@deep) sets bits 0 and 63 of s3_5_c15_c6_2; then WFI
+ * an isb; system sleep sets bits 0 and 63 of s3_5_c15_c6_2 instead; then WFI
  * until the power goes, acknowledging the fast IPI after each spurious wake.
- * Under Linux (EL2, VHE) s3_1_c15_c7_4 is accessible and reads 0x6 on J713,
- * bit 0 already clear: the clear is kept as XNU does it. NO EFFECT on the
- * value (unverified for side effects). m1n1 (EL2 without E2H) traps it.
+ * Under Linux (EL2, VHE) s3_1_c15_c7_4 reads 0x6 on J713, bit 0 already
+ * clear, so the clear writes nothing. The system-sleep write is UNDEFINED at
+ * EL2 (ESR EC 0; a debugfs write-back of its value 0, 2026-10-04): the Apple
+ * system registers XNU writes there are locked for EL2 on T8132, as
+ * CYC_OVRD is for m1n1. Every core, the boot CPU in S2R included, therefore
+ * takes the power-down variant.
  */
-void __noreturn apple_rvbar_core_off(bool deep)
+void __noreturn apple_rvbar_core_off(void)
 {
 	void __iomem *coresight = rvbar_cpus[smp_processor_id()].coresight;
 
@@ -270,44 +262,20 @@ void __noreturn apple_rvbar_core_off(bool deep)
 	writel_relaxed(CORESIGHT_LAR_KEY, coresight + CORESIGHT_LAR);
 	writel_relaxed(0, coresight + CORESIGHT_EDPRCR);
 
-	if (deep) {
-		sysreg_clear_set_s(SYS_APL_SLEEP_EL1, 0, BIT(0) | BIT(63));
-	} else {
-		sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
-		isb();
-		sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
-		isb();
-	}
+	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
+	isb();
+	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
+	isb();
 
 	for (;;) {
 		dsb(sy);
 		isb();
 		wfi();
 		write_sysreg_s(1, SYS_APL_IPI_SR_EL1);
-		if (!deep)
-			apple_rvbar_restart_if_slot();
+		apple_rvbar_restart_if_slot();
 	}
 }
 EXPORT_SYMBOL_GPL(apple_rvbar_core_off);
-
-/*
- * The boot CPU's half of ml_arm_sleep (K:be07e9c..be07ee8, then K:be07de8..
- * be07df4): wait until every secondary has stored its sleep token, then clear
- * the hold so that they all take arm64_prepare_for_sleep(1) with it.
- */
-void apple_rvbar_release_sleepers(void)
-{
-	unsigned int cpu;
-
-	for_each_possible_cpu(cpu)
-		if (rvbar_cpus[cpu].powered_off)
-			while (!READ_ONCE(rvbar_cpus[cpu].sleeping))
-				cpu_relax();
-	WRITE_ONCE(rvbar_sleep_hold, 0);
-	dsb(sy);
-	sev();
-}
-EXPORT_SYMBOL_GPL(apple_rvbar_release_sleepers);
 
 #ifdef CONFIG_HOTPLUG_CPU
 static bool apple_rvbar_cpu_can_disable(unsigned int cpu)
@@ -329,37 +297,24 @@ static void apple_rvbar_cpu_die(unsigned int cpu)
 	dsb(sy);
 	writel(apple_rvbar_core_bit(cpu), rvbar_cpu_start + CPU_START_STOP);
 	/*
-	 * ml_arm_sleep uses arm64_prepare_for_sleep(1), which XNU reaches for
-	 * system sleep. Outside S2R it took the J713 SoC down (reset, then hang,
-	 * 2026-10-03), so a lone hotplugged core uses the power-down variant (0).
+	 * ml_arm_sleep (K:be07e4c..be07e98): the secondary goes down at once; the
+	 * hold it checks (K:ca47dfc) is only set on a debugger stop path
+	 * (K:be05634), and the boot CPU waits for the secondaries' sleep tokens
+	 * before its own sleep. XNU's system-sleep variant is not writable at
+	 * EL2 (apple_rvbar_core_off): taking it here left a P core on an
+	 * undefined instruction (pm_test=core, 2026-10-04).
 	 */
-	if (pm_suspend_target_state != PM_SUSPEND_MEM)
-		apple_rvbar_core_off(false);
-
-	/*
-	 * ml_arm_sleep's secondary path (K:be07e4c..be07e98): dsb, store the
-	 * sleep token, WFE until the boot CPU clears the hold, dsb, then the
-	 * system-sleep variant together with the boot CPU. Taking it on the way
-	 * down instead (with quiesceHW and the boot CPU still to run) left a P
-	 * core executing an undefined instruction and an SError on CPU0
-	 * (pm_test=core, 2026-10-04). A core still held when the suspend is
-	 * aborted gets its slot from cpu_boot and restarts from it.
-	 */
-	dsb(sy);
-	WRITE_ONCE(rvbar_cpus[cpu].sleeping, true);
-	while (READ_ONCE(rvbar_sleep_hold)) {
-		wfe();
-		apple_rvbar_restart_if_slot();
-	}
-	dsb(sy);
-	apple_rvbar_core_off(true);
+	apple_rvbar_core_off();
 }
 
 static int apple_rvbar_cpu_kill(unsigned int cpu)
 {
 	u32 pwr;
 
-	/* A secondary going down for S2R stays powered at the hold. */
+	/*
+	 * AppleARMCPU::quiesceCPU does not wait for the core to lose power; in S2R
+	 * the SoC sleep takes it down.
+	 */
 	if (pm_suspend_target_state == PM_SUSPEND_MEM)
 		return 0;
 	return readl_poll_timeout(rvbar_cpus[cpu].impl + CPU_IMPL_PWR, pwr,

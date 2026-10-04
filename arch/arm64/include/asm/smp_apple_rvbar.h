@@ -6,7 +6,6 @@
 
 void apple_rvbar_set_entry(unsigned int cpu, phys_addr_t entry);
 void apple_rvbar_set_resume_entry(unsigned int cpu);
-void __noreturn apple_rvbar_core_off(bool deep);
-void apple_rvbar_release_sleepers(void);
+void __noreturn apple_rvbar_core_off(void);
 
 #endif
