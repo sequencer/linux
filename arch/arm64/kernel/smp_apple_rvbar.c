@@ -276,20 +276,20 @@ static void __noreturn apple_rvbar_enter_el1(void *vectors, void *entry, u64 x1)
 void __noreturn apple_rvbar_core_off(bool sleep)
 {
 	/*
-	 * System sleep: arm64_prepare_for_sleep(1) writes only s3_5_c15_c6_2
-	 * before the WFI, no SIQ_CFG/CORE_OFF. That write UNDEFs at EL1 as well
-	 * as at EL2 on J713 (apple_rvbar_el1_probe mode 4, 2026-10-04), so the
-	 * core goes straight to the WFI loop. There it stays restartable: an
-	 * aborted suspend brings it back through cpu_boot's slot and IPI, and the
-	 * boot CPU's slot holds cpu_resume (apple_rvbar_set_resume_entry). Parked
-	 * at EL1 it could not, and the aborted suspend locked up (J713 cycle 30).
+	 * System sleep (@sleep): arm64_prepare_for_sleep(1) writes only
+	 * s3_5_c15_c6_2 before the WFI, and that write UNDEFs at EL1 as well as
+	 * at EL2 on J713 (apple_rvbar_el1_probe mode 4, 2026-10-04). The core
+	 * takes the core power-down instead, the one path an aborted suspend can
+	 * wake: cpu_boot's IPI does not wake a core waiting without SIQ_CFG
+	 * (system-sleep down/up of CPU1 hung in add_cpu, J713 2026-10-04), and a
+	 * core parked at EL1 ignored its slot (cycle 30). In a real SoC sleep the
+	 * core loses power either way and comes back through RVBAR and its slot
+	 * (cpu_resume for the boot CPU, apple_rvbar_set_resume_entry).
 	 */
-	if (!sleep) {
-		sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
-		isb();
-		sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
-		isb();
-	}
+	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
+	isb();
+	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
+	isb();
 
 	for (;;) {
 		dsb(sy);
