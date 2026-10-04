@@ -46,6 +46,7 @@
 #include <asm/cacheflush.h>
 #include <asm/cpu_ops.h>
 #include <asm/kexec.h>
+#include <asm/kvm_arm.h>
 #include <asm/mmu_context.h>
 #include <asm/smp_apple_rvbar.h>
 #include <asm/smp_plat.h>
@@ -85,6 +86,8 @@ struct rvbar_mailbox {
 #define SYS_APL_IPI_RR_GLOBAL_EL1	sys_reg(3, 5, 15, 0, 1)
 #define IPI_RR_CPU		GENMASK(7, 0)
 #define IPI_RR_CLUSTER		GENMASK(23, 16)
+
+extern char apple_rvbar_el1_vectors[], apple_rvbar_el1_sleep[];
 
 static phys_addr_t rvbar_mailbox_pa, rvbar_cpu_start_pa;
 static struct rvbar_mailbox __iomem *rvbar_mailbox;
@@ -244,13 +247,24 @@ static void apple_rvbar_restart_if_slot(void)
  * until the power goes, acknowledging the fast IPI after each spurious wake.
  * Under Linux (EL2, VHE) s3_1_c15_c7_4 reads 0x6 on J713, bit 0 already
  * clear, so the clear writes nothing. The system-sleep write is UNDEFINED at
- * EL2 (ESR EC 0; a debugfs write-back of its value 0, 2026-10-04): the Apple
- * system registers XNU writes there are locked for EL2 on T8132, as
- * CYC_OVRD is for m1n1. Every core, the boot CPU in S2R included, therefore
- * takes the power-down variant.
+ * EL2 (ESR EC 0; a debugfs write-back of its value 0, 2026-10-04), so for
+ * system sleep (@sleep) the core enters EL1 (HCR_EL2.TGE clear, MMU off,
+ * DAIF masked) and runs XNU's sequence there (apple_rvbar_el1.S); it next
+ * runs from RVBAR at EL2.
  */
-void __noreturn apple_rvbar_core_off(void)
+void __noreturn apple_rvbar_core_off(bool sleep)
 {
+	if (sleep) {
+		write_sysreg_s(__pa_symbol(apple_rvbar_el1_vectors), SYS_VBAR_EL12);
+		write_sysreg_s(INIT_SCTLR_EL1_MMU_OFF, sys_reg(3, 5, 1, 0, 0));	/* SCTLR_EL12 */
+		write_sysreg(PSR_MODE_EL1h | PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT, spsr_el2);
+		write_sysreg(__pa_symbol(apple_rvbar_el1_sleep), elr_el2);
+		write_sysreg(read_sysreg(hcr_el2) & ~HCR_TGE, hcr_el2);
+		isb();
+		asm volatile("eret");
+		unreachable();
+	}
+
 	sysreg_clear_set_s(SYS_APL_SIQ_CFG_EL1, 3, 3);
 	isb();
 	sysreg_clear_set_s(SYS_APL_CORE_OFF_EL1, BIT(0), 0);
@@ -289,11 +303,10 @@ static void apple_rvbar_cpu_die(unsigned int cpu)
 	 * ml_arm_sleep (K:be07e4c..be07e98): the secondary goes down at once; the
 	 * hold it checks (K:ca47dfc) is only set on a debugger stop path
 	 * (K:be05634), and the boot CPU waits for the secondaries' sleep tokens
-	 * before its own sleep. XNU's system-sleep variant is not writable at
-	 * EL2 (apple_rvbar_core_off): taking it here left a P core on an
-	 * undefined instruction (pm_test=core, 2026-10-04).
+	 * before its own sleep. In S2R that is the system-sleep variant, taken at
+	 * EL1 (apple_rvbar_core_off).
 	 */
-	apple_rvbar_core_off();
+	apple_rvbar_core_off(pm_suspend_target_state == PM_SUSPEND_MEM);
 }
 
 static int apple_rvbar_cpu_kill(unsigned int cpu)
