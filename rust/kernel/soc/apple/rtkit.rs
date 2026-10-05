@@ -242,16 +242,50 @@ impl<T: Operations> RtKit<T> {
         })
     }
 
+    /// Selects the early preallocated crash-buffer exchange used by G16.
+    /// Call before starting the coprocessor CPU.
+    pub fn set_early_crashlog(self: Pin<&mut Self>) {
+        // SAFETY: The RTKit handle is valid by the type invariant.
+        unsafe { bindings::apple_rtkit_set_early_crashlog(self.rtk) };
+    }
+
     /// Boots (wakes up) the RTKit coprocessor.
     pub fn wake(self: Pin<&mut Self>) -> Result {
         // SAFETY: `rtk` is valid per the type invariant.
         to_result(unsafe { bindings::apple_rtkit_wake(self.rtk) })
     }
 
+    /// Expects the coprocessor's own power acknowledge after its CPU is
+    /// restarted from system sleep; [`Self::boot`] then waits for it.
+    pub fn expect_iop_wake(self: Pin<&mut Self>) {
+        // SAFETY: `rtk` is valid per the type invariant.
+        unsafe { bindings::apple_rtkit_expect_iop_wake(self.rtk) };
+    }
+
     /// Waits for the RTKit coprocessor to finish booting.
     pub fn boot(self: Pin<&mut Self>) -> Result {
         // SAFETY: `rtk` is valid per the type invariant.
         to_result(unsafe { bindings::apple_rtkit_boot(self.rtk) })
+    }
+
+    /// Requests AP and then IOP power state IDLE (0x201), waiting for each ack.
+    pub fn idle(self: Pin<&mut Self>) -> Result {
+        // SAFETY: `rtk` is valid per the type invariant.
+        to_result(unsafe { bindings::apple_rtkit_idle(self.rtk) })
+    }
+
+    /// Stops and restarts the mailbox, frees the firmware-requested buffers and
+    /// forgets the endpoint map, ready for a coprocessor restart and `boot`.
+    pub fn reinit(self: Pin<&mut Self>) -> Result {
+        // SAFETY: `rtk` is valid per the type invariant.
+        to_result(unsafe { bindings::apple_rtkit_reinit(self.rtk) })
+    }
+
+    /// Quiesces the host interface and puts the coprocessor to sleep.
+    /// Callers must retain firmware-accessible memory if this fails.
+    pub fn shutdown(self: Pin<&mut Self>) -> Result {
+        // SAFETY: `rtk` is valid per the type invariant.
+        to_result(unsafe { bindings::apple_rtkit_shutdown(self.rtk) })
     }
 
     /// Starts a non-system endpoint.
