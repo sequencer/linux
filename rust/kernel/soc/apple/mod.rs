@@ -5,7 +5,7 @@
 #[cfg(CONFIG_RUST_APPLE_RTKIT = "y")]
 pub mod rtkit;
 
-#[cfg(any(CONFIG_APPLE_AOP = "y", CONFIG_APPLE_AOP = "m"))]
+#[cfg(CONFIG_RUST_APPLE_RTKIT = "y")]
 pub mod aop;
 
 #[cfg(CONFIG_RUST_APPLE_MAILBOX = "y")]
