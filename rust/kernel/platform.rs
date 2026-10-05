@@ -79,6 +79,7 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
             (*pdrv.get()).remove = Some(Self::remove_callback);
             (*pdrv.get()).driver.of_match_table = of_table;
             (*pdrv.get()).driver.acpi_match_table = acpi_table;
+            (*pdrv.get()).driver.pm = &Self::PM_OPS;
         }
 
         // SAFETY: `pdrv` is guaranteed to be a valid `DriverType`.
@@ -92,6 +93,35 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
 }
 
 impl<T: Driver + 'static> Adapter<T> {
+    /// System sleep callbacks; the PM core calls them with the device lock held.
+    const PM_OPS: bindings::dev_pm_ops = bindings::dev_pm_ops {
+        suspend: Some(Self::suspend_callback),
+        resume: Some(Self::resume_callback),
+        // SAFETY: All-zero is a valid `struct dev_pm_ops` (every callback absent).
+        ..unsafe { core::mem::zeroed() }
+    };
+
+    extern "C" fn suspend_callback(dev: *mut bindings::device) -> kernel::ffi::c_int {
+        // SAFETY: The platform bus only calls PM callbacks for a `struct platform_device`.
+        let pdev = unsafe { container_of!(dev, bindings::platform_device, dev) };
+        // SAFETY: `pdev` is valid and its device lock is held for the callback.
+        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
+        // SAFETY: PM callbacks run only for a bound device, after `probe_callback` stored the
+        // driver data.
+        let data = unsafe { pdev.as_ref().drvdata_borrow::<T>() };
+        from_result(|| T::suspend(pdev, data).map(|()| 0))
+    }
+
+    extern "C" fn resume_callback(dev: *mut bindings::device) -> kernel::ffi::c_int {
+        // SAFETY: The platform bus only calls PM callbacks for a `struct platform_device`.
+        let pdev = unsafe { container_of!(dev, bindings::platform_device, dev) };
+        // SAFETY: `pdev` is valid and its device lock is held for the callback.
+        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
+        // SAFETY: As in `suspend_callback`.
+        let data = unsafe { pdev.as_ref().drvdata_borrow::<T>() };
+        from_result(|| T::resume(pdev, data).map(|()| 0))
+    }
+
     extern "C" fn probe_callback(pdev: *mut bindings::platform_device) -> kernel::ffi::c_int {
         // SAFETY: The platform bus only ever calls the probe callback with a valid pointer to a
         // `struct platform_device`.
@@ -239,6 +269,18 @@ pub trait Driver: Send {
     /// Otherwise, release operations for driver resources should be performed in `Self::drop`.
     fn unbind(dev: &Device<device::Core>, this: Pin<&Self>) {
         let _ = (dev, this);
+    }
+
+    /// System suspend (the `dev_pm_ops.suspend` phase). Implementing this callback is optional.
+    fn suspend(dev: &Device<device::Core>, this: Pin<&Self>) -> Result {
+        let _ = (dev, this);
+        Ok(())
+    }
+
+    /// System resume (the `dev_pm_ops.resume` phase). Implementing this callback is optional.
+    fn resume(dev: &Device<device::Core>, this: Pin<&Self>) -> Result {
+        let _ = (dev, this);
+        Ok(())
     }
 }
 
