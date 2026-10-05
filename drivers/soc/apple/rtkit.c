@@ -1151,6 +1151,12 @@ void apple_rtkit_expect_iop_wake(struct apple_rtkit *rtk)
 }
 EXPORT_SYMBOL_GPL(apple_rtkit_expect_iop_wake);
 
+int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, unsigned int state)
+{
+	return apple_rtkit_set_ap_power_state(rtk, state);
+}
+EXPORT_SYMBOL_GPL(apple_rtkit_set_ap_power);
+
 void apple_rtkit_free(struct apple_rtkit *rtk)
 {
 	apple_mbox_stop(rtk->mbox);
