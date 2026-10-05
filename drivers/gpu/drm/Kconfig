@@ -269,11 +269,19 @@ config DRM_GEM_SHMEM_HELPER
 	  Choose this if you need the GEM shmem helper functions
 
 config RUST_DRM_GEM_SHMEM_HELPER
-	bool
+	bool "Rust abstractions for the DRM shmem GEM helper"
 	depends on DRM && MMU
 	select DRM_GEM_SHMEM_HELPER
 	help
 	  Choose this if you need the GEM shmem helper functions In Rust
+
+config RUST_DRM_SCHED
+	bool "Rust abstractions for the DRM scheduler"
+	depends on DRM=y && RUST
+	select DRM_SCHED
+	help
+	  The kernel crate binds the DRM GPU scheduler, which must then be
+	  built in.
 
 config DRM_SUBALLOC_HELPER
 	tristate
