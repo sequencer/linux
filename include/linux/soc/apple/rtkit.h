@@ -163,13 +163,6 @@ int apple_rtkit_wake(struct apple_rtkit *rtk);
 void apple_rtkit_expect_iop_wake(struct apple_rtkit *rtk);
 
 /*
- * Send the AP power state (0x201 sleeping, 0x20 on) and wait for the IOP to
- * acknowledge it, leaving the IOP power state alone (RTBuddy's
- * _signalApStateAllRoutes for a user-power-managed nub).
- */
-int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, unsigned int state);
-
-/*
  * Shutdown the co-processor
  */
 int apple_rtkit_shutdown(struct apple_rtkit *rtk);
