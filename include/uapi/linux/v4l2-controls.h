@@ -2103,6 +2103,7 @@ struct v4l2_ctrl_mpeg2_quantisation {
 #define V4L2_CID_STATELESS_HEVC_ENTRY_POINT_OFFSETS (V4L2_CID_CODEC_STATELESS_BASE + 407)
 #define V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 408)
 #define V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 409)
+#define V4L2_CID_STATELESS_HEVC_EXT_PPS_RANGE  (V4L2_CID_CODEC_STATELESS_BASE + 410)
 
 enum v4l2_stateless_hevc_decode_mode {
 	V4L2_STATELESS_HEVC_DECODE_MODE_SLICE_BASED,
@@ -2127,6 +2128,16 @@ enum v4l2_stateless_hevc_start_code {
 #define V4L2_HEVC_SPS_FLAG_LONG_TERM_REF_PICS_PRESENT		(1ULL << 6)
 #define V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED		(1ULL << 7)
 #define V4L2_HEVC_SPS_FLAG_STRONG_INTRA_SMOOTHING_ENABLED	(1ULL << 8)
+/* sps_range_extension( ) syntax elements */
+#define V4L2_HEVC_SPS_FLAG_TRANSFORM_SKIP_ROTATION_ENABLED	(1ULL << 9)
+#define V4L2_HEVC_SPS_FLAG_TRANSFORM_SKIP_CONTEXT_ENABLED	(1ULL << 10)
+#define V4L2_HEVC_SPS_FLAG_IMPLICIT_RDPCM_ENABLED		(1ULL << 11)
+#define V4L2_HEVC_SPS_FLAG_EXPLICIT_RDPCM_ENABLED		(1ULL << 12)
+#define V4L2_HEVC_SPS_FLAG_EXTENDED_PRECISION_PROCESSING	(1ULL << 13)
+#define V4L2_HEVC_SPS_FLAG_INTRA_SMOOTHING_DISABLED		(1ULL << 14)
+#define V4L2_HEVC_SPS_FLAG_HIGH_PRECISION_OFFSETS_ENABLED	(1ULL << 15)
+#define V4L2_HEVC_SPS_FLAG_PERSISTENT_RICE_ADAPTATION_ENABLED	(1ULL << 16)
+#define V4L2_HEVC_SPS_FLAG_CABAC_BYPASS_ALIGNMENT_ENABLED	(1ULL << 17)
 
 /**
  * struct v4l2_ctrl_hevc_sps - ITU-T Rec. H.265: Sequence parameter set
@@ -2384,6 +2395,7 @@ struct v4l2_hevc_pred_weight_table {
 #define V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED (1ULL << 7)
 #define V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED (1ULL << 8)
 #define V4L2_HEVC_SLICE_PARAMS_FLAG_DEPENDENT_SLICE_SEGMENT	(1ULL << 9)
+#define V4L2_HEVC_SLICE_PARAMS_FLAG_CU_CHROMA_QP_OFFSET_ENABLED	(1ULL << 10)
 
 /**
  * struct v4l2_ctrl_hevc_slice_params - HEVC slice parameters
@@ -2615,6 +2627,41 @@ struct v4l2_ctrl_hevc_ext_sps_st_rps {
 struct v4l2_ctrl_hevc_ext_sps_lt_rps {
 	__u16	lt_ref_pic_poc_lsb_sps;
 	__u16	flags;
+};
+
+#define V4L2_HEVC_EXT_PPS_RANGE_FLAG_CROSS_COMPONENT_PREDICTION_ENABLED	0x1
+#define V4L2_HEVC_EXT_PPS_RANGE_FLAG_CHROMA_QP_OFFSET_LIST_ENABLED	0x2
+
+/**
+ * struct v4l2_ctrl_hevc_ext_pps_range - ITU-T Rec. H.265: PPS range extension
+ *
+ * The pps_range_extension( ) syntax of the picture parameter set, for
+ * streams with pps_range_extension_flag set. The SPS range extension
+ * syntax elements are flags of &struct v4l2_ctrl_hevc_sps.
+ *
+ * @log2_max_transform_skip_block_size_minus2: plus 2, the largest
+ *	log2 block size that may use transform skip
+ * @diff_cu_chroma_qp_offset_depth: depth difference between the CTB and
+ *	the coding units that convey cu_chroma_qp_offset_flag
+ * @chroma_qp_offset_list_len_minus1: plus 1, the number of entries of
+ *	cb_qp_offset_list and cr_qp_offset_list
+ * @log2_sao_offset_scale_luma: log2 of the luma SAO offset scale
+ * @log2_sao_offset_scale_chroma: log2 of the chroma SAO offset scale
+ * @cb_qp_offset_list: Cb QP offsets selected by cu_chroma_qp_offset_idx
+ * @cr_qp_offset_list: Cr QP offsets selected by cu_chroma_qp_offset_idx
+ * @reserved: padding field. Should be zeroed by applications.
+ * @flags: see V4L2_HEVC_EXT_PPS_RANGE_FLAG_{}
+ */
+struct v4l2_ctrl_hevc_ext_pps_range {
+	__u8	log2_max_transform_skip_block_size_minus2;
+	__u8	diff_cu_chroma_qp_offset_depth;
+	__u8	chroma_qp_offset_list_len_minus1;
+	__u8	log2_sao_offset_scale_luma;
+	__u8	log2_sao_offset_scale_chroma;
+	__s8	cb_qp_offset_list[6];
+	__s8	cr_qp_offset_list[6];
+	__u8	reserved[3];
+	__u32	flags;
 };
 
 /* Stateless VP9 controls */
