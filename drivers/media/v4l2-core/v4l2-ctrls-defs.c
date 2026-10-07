@@ -537,6 +537,7 @@ const char * const *v4l2_ctrl_get_menu(u32 id)
 		"Main",
 		"Main Still Picture",
 		"Main 10",
+		"Format Range Extensions",
 		NULL,
 	};
 	static const char * const hevc_level[] = {
