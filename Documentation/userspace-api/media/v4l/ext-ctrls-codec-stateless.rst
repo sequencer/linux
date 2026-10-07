@@ -3096,6 +3096,38 @@ This structure contains all loop filter related parameters. See sections
       - 0x00000002
       -
 
+``V4L2_CID_STATELESS_HEVC_EXT_PRED_WEIGHT_OFFSETS (struct)``
+    Full precision weighted prediction offsets, for streams with
+    high_precision_offsets_enabled_flag, section 7.4.7.3 "Weighted prediction
+    parameters semantics" of :ref:`hevc`. A dynamic array with one element
+    per slice, in the order of ``V4L2_CID_STATELESS_HEVC_SLICE_PARAMS``. It
+    is set with every request of a stream with
+    ``V4L2_HEVC_SPS_FLAG_HIGH_PRECISION_OFFSETS_ENABLED``, and then its
+    offsets replace the offsets of the slice's
+    :c:type:`v4l2_hevc_pred_weight_table`; without that flag it is not used.
+
+.. c:type:: v4l2_ctrl_hevc_ext_pred_weight_offsets
+
+.. cssclass:: longtable
+
+.. flat-table:: struct v4l2_ctrl_hevc_ext_pred_weight_offsets
+    :header-rows:  0
+    :stub-columns: 0
+    :widths:       1 1 2
+
+    * - __s16
+      - ``luma_offset_l0[V4L2_HEVC_DPB_ENTRIES_NUM_MAX]``
+      - luma_offset_l0
+    * - __s16
+      - ``chroma_offset_l0[V4L2_HEVC_DPB_ENTRIES_NUM_MAX][2]``
+      - ChromaOffsetL0, equation 7-56
+    * - __s16
+      - ``luma_offset_l1[V4L2_HEVC_DPB_ENTRIES_NUM_MAX]``
+      - luma_offset_l1
+    * - __s16
+      - ``chroma_offset_l1[V4L2_HEVC_DPB_ENTRIES_NUM_MAX][2]``
+      - ChromaOffsetL1, equation 7-56
+
 ``V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS (struct)``
     Subset of the :c:type:`v4l2_ctrl_hevc_sps` control.
     It extends it with the list of Short-term reference sets parameters.

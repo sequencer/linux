@@ -2104,6 +2104,7 @@ struct v4l2_ctrl_mpeg2_quantisation {
 #define V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 408)
 #define V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 409)
 #define V4L2_CID_STATELESS_HEVC_EXT_PPS_RANGE  (V4L2_CID_CODEC_STATELESS_BASE + 410)
+#define V4L2_CID_STATELESS_HEVC_EXT_PRED_WEIGHT_OFFSETS (V4L2_CID_CODEC_STATELESS_BASE + 411)
 
 enum v4l2_stateless_hevc_decode_mode {
 	V4L2_STATELESS_HEVC_DECODE_MODE_SLICE_BASED,
@@ -2662,6 +2663,33 @@ struct v4l2_ctrl_hevc_ext_pps_range {
 	__s8	cr_qp_offset_list[6];
 	__u8	reserved[3];
 	__u32	flags;
+};
+
+/**
+ * struct v4l2_ctrl_hevc_ext_pred_weight_offsets - HEVC weighted prediction
+ *	offsets at full precision
+ *
+ * With high_precision_offsets_enabled_flag the weighted prediction offsets
+ * span the sample bit depth and do not fit the 8-bit fields of
+ * &struct v4l2_hevc_pred_weight_table. This dynamic array holds one entry per
+ * slice, in the order of the V4L2_CID_STATELESS_HEVC_SLICE_PARAMS array. It
+ * is set with every request of a stream with
+ * V4L2_HEVC_SPS_FLAG_HIGH_PRECISION_OFFSETS_ENABLED, and then its offsets
+ * replace the offsets of the slice's &struct v4l2_hevc_pred_weight_table;
+ * without that flag it is not used.
+ *
+ * @luma_offset_l0: luma_offset_l0, the additive offset applied to the luma
+ *	prediction value for list 0
+ * @chroma_offset_l0: ChromaOffsetL0 (7-56), the additive offset applied to
+ *	the chroma prediction values for list 0
+ * @luma_offset_l1: luma_offset_l1
+ * @chroma_offset_l1: ChromaOffsetL1
+ */
+struct v4l2_ctrl_hevc_ext_pred_weight_offsets {
+	__s16	luma_offset_l0[V4L2_HEVC_DPB_ENTRIES_NUM_MAX];
+	__s16	chroma_offset_l0[V4L2_HEVC_DPB_ENTRIES_NUM_MAX][2];
+	__s16	luma_offset_l1[V4L2_HEVC_DPB_ENTRIES_NUM_MAX];
+	__s16	chroma_offset_l1[V4L2_HEVC_DPB_ENTRIES_NUM_MAX][2];
 };
 
 /* Stateless VP9 controls */
