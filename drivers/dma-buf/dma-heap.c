@@ -54,22 +54,63 @@ module_param(mem_accounting, bool, 0444);
 MODULE_PARM_DESC(mem_accounting,
 		 "Enable cgroup-based memory accounting for dma-buf heap allocations (default=false).");
 
-static int dma_heap_buffer_alloc(struct dma_heap *heap, size_t len,
-				 u32 fd_flags,
-				 u64 heap_flags)
+/**
+ * dma_heap_find - look up a heap by its name
+ * @name:	the heap name, as its /dev/dma_heap node is called
+ *
+ * Heaps are never removed, so the pointer stays valid.
+ *
+ * Returns the heap, or NULL if no heap has that name.
+ */
+struct dma_heap *dma_heap_find(const char *name)
 {
-	struct dma_buf *dmabuf;
-	int fd;
+	struct dma_heap *h, *found = NULL;
 
+	mutex_lock(&heap_list_lock);
+	list_for_each_entry(h, &heap_list, list) {
+		if (!strcmp(h->name, name)) {
+			found = h;
+			break;
+		}
+	}
+	mutex_unlock(&heap_list_lock);
+	return found;
+}
+EXPORT_SYMBOL_NS_GPL(dma_heap_find, "DMA_BUF_HEAP");
+
+/**
+ * dma_heap_buffer_alloc - allocate a dma-buf from a heap
+ * @heap:	the heap
+ * @len:	size in bytes, rounded up to whole pages
+ * @fd_flags:	the flags of an fd made from the dma-buf later
+ * @heap_flags:	heap specific flags
+ *
+ * For drivers that hand their clients heap memory, as the heap device does.
+ *
+ * Returns the dma-buf, or an ERR_PTR.
+ */
+struct dma_buf *dma_heap_buffer_alloc(struct dma_heap *heap, size_t len,
+				      u32 fd_flags, u64 heap_flags)
+{
 	/*
 	 * Allocations from all heaps have to begin
 	 * and end on page boundaries.
 	 */
 	len = PAGE_ALIGN(len);
 	if (!len)
-		return -EINVAL;
+		return ERR_PTR(-EINVAL);
 
-	dmabuf = heap->ops->allocate(heap, len, fd_flags, heap_flags);
+	return heap->ops->allocate(heap, len, fd_flags, heap_flags);
+}
+EXPORT_SYMBOL_NS_GPL(dma_heap_buffer_alloc, "DMA_BUF_HEAP");
+
+static int dma_heap_buffer_alloc_fd(struct dma_heap *heap, size_t len,
+				    u32 fd_flags, u64 heap_flags)
+{
+	struct dma_buf *dmabuf;
+	int fd;
+
+	dmabuf = dma_heap_buffer_alloc(heap, len, fd_flags, heap_flags);
 	if (IS_ERR(dmabuf))
 		return PTR_ERR(dmabuf);
 
@@ -113,9 +154,9 @@ static long dma_heap_ioctl_allocate(struct file *file, void *data)
 	if (heap_allocation->heap_flags & ~DMA_HEAP_VALID_HEAP_FLAGS)
 		return -EINVAL;
 
-	fd = dma_heap_buffer_alloc(heap, heap_allocation->len,
-				   heap_allocation->fd_flags,
-				   heap_allocation->heap_flags);
+	fd = dma_heap_buffer_alloc_fd(heap, heap_allocation->len,
+				      heap_allocation->fd_flags,
+				      heap_allocation->heap_flags);
 	if (fd < 0)
 		return fd;
 
