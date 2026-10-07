@@ -102,6 +102,12 @@ pub trait DriverObject: Sync + Send + Sized {
     /// Close a handle to an existing object, associated with a File.
     fn close(_obj: &<Self::Driver as drm::Driver>::Object, _file: &DriverFile<Self>) {}
 
+    /// Optional constructor of the driver data of an object imported from another driver's
+    /// dma-buf. Shmem objects of a driver that implements it accept PRIME imports.
+    fn import(_dev: &drm::Device<Self::Driver>, _size: usize) -> impl PinInit<Self, Error> {
+        Err(EINVAL)
+    }
+
     /// Optional handle for exporting a gem object.
     fn export(
         _obj: &<Self::Driver as drm::Driver>::Object,
