@@ -2439,9 +2439,6 @@ enum v4l2_mpeg_video_hevc_profile -
       - Main still picture profile.
     * - ``V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_10``
       - Main 10 profile.
-    * - ``V4L2_MPEG_VIDEO_HEVC_PROFILE_RANGE_EXTENSIONS``
-      - Format range extensions profiles (general_profile_idc 4): the
-        Main 12, Main 4:2:2 10/12, Main 4:4:4 and related profiles.
 
 .. raw:: latex
 
