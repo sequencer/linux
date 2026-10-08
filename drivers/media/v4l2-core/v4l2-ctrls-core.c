@@ -430,9 +430,6 @@ void v4l2_ctrl_type_op_log(const struct v4l2_ctrl *ctrl)
 	case V4L2_CTRL_TYPE_HEVC_EXT_SPS_LT_RPS:
 		pr_cont("HEVC_EXT_SPS_LT_RPS");
 		break;
-	case V4L2_CTRL_TYPE_HEVC_EXT_PPS_RANGE:
-		pr_cont("HEVC_EXT_PPS_RANGE");
-		break;
 	case V4L2_CTRL_TYPE_HEVC_SCALING_MATRIX:
 		pr_cont("HEVC_SCALING_MATRIX");
 		break;
@@ -972,7 +969,6 @@ static int std_validate_compound(const struct v4l2_ctrl *ctrl, u32 idx,
 	struct v4l2_ctrl_h264_decode_params *p_h264_dec_params;
 	struct v4l2_ctrl_hevc_ext_sps_lt_rps *p_hevc_lt_rps;
 	struct v4l2_ctrl_hevc_ext_sps_st_rps *p_hevc_st_rps;
-	struct v4l2_ctrl_hevc_ext_pps_range *p_hevc_pps_range;
 	struct v4l2_ctrl_hevc_sps *p_hevc_sps;
 	struct v4l2_ctrl_hevc_pps *p_hevc_pps;
 	struct v4l2_ctrl_hevc_slice_params *p_hevc_slice_params;
@@ -1291,27 +1287,6 @@ static int std_validate_compound(const struct v4l2_ctrl *ctrl, u32 idx,
 
 		if (p_hevc_lt_rps->flags & ~V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT)
 			return -EINVAL;
-		break;
-
-	case V4L2_CTRL_TYPE_HEVC_EXT_PPS_RANGE:
-		p_hevc_pps_range = p;
-
-		if (p_hevc_pps_range->flags &
-		    ~(V4L2_HEVC_EXT_PPS_RANGE_FLAG_CROSS_COMPONENT_PREDICTION_ENABLED |
-		      V4L2_HEVC_EXT_PPS_RANGE_FLAG_CHROMA_QP_OFFSET_LIST_ENABLED))
-			return -EINVAL;
-		if (p_hevc_pps_range->chroma_qp_offset_list_len_minus1 > 5)
-			return -EINVAL;
-		if (!(p_hevc_pps_range->flags &
-		      V4L2_HEVC_EXT_PPS_RANGE_FLAG_CHROMA_QP_OFFSET_LIST_ENABLED)) {
-			p_hevc_pps_range->diff_cu_chroma_qp_offset_depth = 0;
-			p_hevc_pps_range->chroma_qp_offset_list_len_minus1 = 0;
-			memset(p_hevc_pps_range->cb_qp_offset_list, 0,
-			       sizeof(p_hevc_pps_range->cb_qp_offset_list));
-			memset(p_hevc_pps_range->cr_qp_offset_list, 0,
-			       sizeof(p_hevc_pps_range->cr_qp_offset_list));
-		}
-		zero_reserved(*p_hevc_pps_range);
 		break;
 
 	case V4L2_CTRL_TYPE_HDR10_CLL_INFO:
@@ -2070,9 +2045,6 @@ static struct v4l2_ctrl *v4l2_ctrl_new(struct v4l2_ctrl_handler *hdl,
 		break;
 	case V4L2_CTRL_TYPE_HEVC_EXT_SPS_LT_RPS:
 		elem_size = sizeof(struct v4l2_ctrl_hevc_ext_sps_lt_rps);
-		break;
-	case V4L2_CTRL_TYPE_HEVC_EXT_PPS_RANGE:
-		elem_size = sizeof(struct v4l2_ctrl_hevc_ext_pps_range);
 		break;
 	case V4L2_CTRL_TYPE_HEVC_SCALING_MATRIX:
 		elem_size = sizeof(struct v4l2_ctrl_hevc_scaling_matrix);

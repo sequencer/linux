@@ -543,12 +543,6 @@ See also the examples in :ref:`control`.
       - n/a
       - A struct :c:type:`v4l2_ctrl_hevc_ext_sps_st_rps`, containing HEVC
 	extended Short-Term RPS for stateless video decoders.
-    * - ``V4L2_CTRL_TYPE_HEVC_EXT_PPS_RANGE``
-      - n/a
-      - n/a
-      - n/a
-      - A struct :c:type:`v4l2_ctrl_hevc_ext_pps_range`, containing the HEVC
-	picture parameter set range extension for stateless video decoders.
     * - ``V4L2_CTRL_TYPE_VP9_COMPRESSED_HDR``
       - n/a
       - n/a

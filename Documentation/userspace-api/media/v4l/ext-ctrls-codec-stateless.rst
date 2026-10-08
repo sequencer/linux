@@ -2208,33 +2208,6 @@ This structure contains all loop filter related parameters. See sections
     * - ``V4L2_HEVC_SPS_FLAG_STRONG_INTRA_SMOOTHING_ENABLED``
       - 0x00000100
       -
-    * - ``V4L2_HEVC_SPS_FLAG_TRANSFORM_SKIP_ROTATION_ENABLED``
-      - 0x00000200
-      - transform_skip_rotation_enabled_flag of sps_range_extension( )
-    * - ``V4L2_HEVC_SPS_FLAG_TRANSFORM_SKIP_CONTEXT_ENABLED``
-      - 0x00000400
-      - transform_skip_context_enabled_flag
-    * - ``V4L2_HEVC_SPS_FLAG_IMPLICIT_RDPCM_ENABLED``
-      - 0x00000800
-      - implicit_rdpcm_enabled_flag
-    * - ``V4L2_HEVC_SPS_FLAG_EXPLICIT_RDPCM_ENABLED``
-      - 0x00001000
-      - explicit_rdpcm_enabled_flag
-    * - ``V4L2_HEVC_SPS_FLAG_EXTENDED_PRECISION_PROCESSING``
-      - 0x00002000
-      - extended_precision_processing_flag
-    * - ``V4L2_HEVC_SPS_FLAG_INTRA_SMOOTHING_DISABLED``
-      - 0x00004000
-      - intra_smoothing_disabled_flag
-    * - ``V4L2_HEVC_SPS_FLAG_HIGH_PRECISION_OFFSETS_ENABLED``
-      - 0x00008000
-      - high_precision_offsets_enabled_flag
-    * - ``V4L2_HEVC_SPS_FLAG_PERSISTENT_RICE_ADAPTATION_ENABLED``
-      - 0x00010000
-      - persistent_rice_adaptation_enabled_flag
-    * - ``V4L2_HEVC_SPS_FLAG_CABAC_BYPASS_ALIGNMENT_ENABLED``
-      - 0x00020000
-      - cabac_bypass_alignment_enabled_flag
 
 .. raw:: latex
 
@@ -2570,9 +2543,6 @@ This structure contains all loop filter related parameters. See sections
     * - ``V4L2_HEVC_SLICE_PARAMS_FLAG_DEPENDENT_SLICE_SEGMENT``
       - 0x00000200
       -
-    * - ``V4L2_HEVC_SLICE_PARAMS_FLAG_CU_CHROMA_QP_OFFSET_ENABLED``
-      - 0x00000400
-      - cu_chroma_qp_offset_enabled_flag of the slice segment header
 
 .. raw:: latex
 
@@ -3033,68 +3003,6 @@ This structure contains all loop filter related parameters. See sections
       - 0x00000001
       - Specifies if the long-term reference picture is used 7.4.3.2.1 "General sequence parameter
         set RBSP semantics" of the specification.
-
-``V4L2_CID_STATELESS_HEVC_EXT_PPS_RANGE (struct)``
-    Extends the :c:type:`v4l2_ctrl_hevc_pps` control with the picture
-    parameter set range extension, section 7.3.2.3.2 "Picture parameter set
-    range extension syntax" of :ref:`hevc`. It is only meaningful for
-    streams that set pps_range_extension_flag; the sequence parameter set
-    range extension is carried by flags of :c:type:`v4l2_ctrl_hevc_sps`.
-
-.. c:type:: v4l2_ctrl_hevc_ext_pps_range
-
-.. cssclass:: longtable
-
-.. flat-table:: struct v4l2_ctrl_hevc_ext_pps_range
-    :header-rows:  0
-    :stub-columns: 0
-    :widths:       1 1 2
-
-    * - __u8
-      - ``log2_max_transform_skip_block_size_minus2``
-      -
-    * - __u8
-      - ``diff_cu_chroma_qp_offset_depth``
-      -
-    * - __u8
-      - ``chroma_qp_offset_list_len_minus1``
-      - At most 5.
-    * - __u8
-      - ``log2_sao_offset_scale_luma``
-      -
-    * - __u8
-      - ``log2_sao_offset_scale_chroma``
-      -
-    * - __s8
-      - ``cb_qp_offset_list[6]``
-      -
-    * - __s8
-      - ``cr_qp_offset_list[6]``
-      -
-    * - __u8
-      - ``reserved[3]``
-      - Applications and drivers must set this to zero.
-    * - __u32
-      - ``flags``
-      - See :ref:`PPS Range Extension Flags <hevc_ext_pps_range_flags>`
-
-.. _hevc_ext_pps_range_flags:
-
-``PPS Range Extension Flags``
-
-.. cssclass:: longtable
-
-.. flat-table::
-    :header-rows:  0
-    :stub-columns: 0
-    :widths:       1 1 2
-
-    * - ``V4L2_HEVC_EXT_PPS_RANGE_FLAG_CROSS_COMPONENT_PREDICTION_ENABLED``
-      - 0x00000001
-      -
-    * - ``V4L2_HEVC_EXT_PPS_RANGE_FLAG_CHROMA_QP_OFFSET_LIST_ENABLED``
-      - 0x00000002
-      -
 
 ``V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS (struct)``
     Subset of the :c:type:`v4l2_ctrl_hevc_sps` control.
