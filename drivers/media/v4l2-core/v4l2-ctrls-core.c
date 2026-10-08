@@ -433,9 +433,6 @@ void v4l2_ctrl_type_op_log(const struct v4l2_ctrl *ctrl)
 	case V4L2_CTRL_TYPE_HEVC_EXT_PPS_RANGE:
 		pr_cont("HEVC_EXT_PPS_RANGE");
 		break;
-	case V4L2_CTRL_TYPE_HEVC_EXT_PRED_WEIGHT_OFFSETS:
-		pr_cont("HEVC_EXT_PRED_WEIGHT_OFFSETS");
-		break;
 	case V4L2_CTRL_TYPE_HEVC_SCALING_MATRIX:
 		pr_cont("HEVC_SCALING_MATRIX");
 		break;
@@ -1317,9 +1314,6 @@ static int std_validate_compound(const struct v4l2_ctrl *ctrl, u32 idx,
 		zero_reserved(*p_hevc_pps_range);
 		break;
 
-	case V4L2_CTRL_TYPE_HEVC_EXT_PRED_WEIGHT_OFFSETS:
-		break;
-
 	case V4L2_CTRL_TYPE_HDR10_CLL_INFO:
 		break;
 
@@ -2079,9 +2073,6 @@ static struct v4l2_ctrl *v4l2_ctrl_new(struct v4l2_ctrl_handler *hdl,
 		break;
 	case V4L2_CTRL_TYPE_HEVC_EXT_PPS_RANGE:
 		elem_size = sizeof(struct v4l2_ctrl_hevc_ext_pps_range);
-		break;
-	case V4L2_CTRL_TYPE_HEVC_EXT_PRED_WEIGHT_OFFSETS:
-		elem_size = sizeof(struct v4l2_ctrl_hevc_ext_pred_weight_offsets);
 		break;
 	case V4L2_CTRL_TYPE_HEVC_SCALING_MATRIX:
 		elem_size = sizeof(struct v4l2_ctrl_hevc_scaling_matrix);
