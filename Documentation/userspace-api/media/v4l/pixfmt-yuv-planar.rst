@@ -243,27 +243,6 @@ All components are stored with the same number of bits per component.
       - Cb, Cr
       - Yes
       - Linear
-    * - V4L2_PIX_FMT_P030
-      - 'P030'
-      - 10
-      - 4:2:0
-      - Cb, Cr
-      - Yes
-      - Linear
-    * - V4L2_PIX_FMT_P230
-      - 'P230'
-      - 10
-      - 4:2:2
-      - Cb, Cr
-      - Yes
-      - Linear
-    * - V4L2_PIX_FMT_P430
-      - 'P430'
-      - 10
-      - 4:4:4
-      - Cb, Cr
-      - Yes
-      - Linear
 
 .. raw:: latex
 
@@ -1067,35 +1046,6 @@ P412.
       - Cr\ :sub:`11`
 
 
-
-
-.. _V4L2-PIX-FMT-P030:
-.. _V4L2-PIX-FMT-P230:
-.. _V4L2-PIX-FMT-P430:
-
-P030, P230 and P430
--------------------
-
-Semi-planar 10-bit YUV with three components packed in each 32-bit little
-endian word: bits 9:0 hold the first component, bits 19:10 the second, bits
-29:20 the third, and bits 31:30 are zero. In the chroma plane the components
-alternate Cb, Cr. P030 has NV12 subsampling, P230 NV16 and P430 NV24. A line
-ends with a partially filled word when its component count is not a multiple
-of three. P030 matches DRM_FORMAT_P030.
-
-.. flat-table:: Sample 6x2 P030 Image, one 32-bit word per cell
-    :header-rows:  0
-    :stub-columns: 0
-
-    * - start + 0:
-      - Y'\ :sub:`02` Y'\ :sub:`01` Y'\ :sub:`00`
-      - Y'\ :sub:`05` Y'\ :sub:`04` Y'\ :sub:`03`
-    * - start + 8:
-      - Y'\ :sub:`12` Y'\ :sub:`11` Y'\ :sub:`10`
-      - Y'\ :sub:`15` Y'\ :sub:`14` Y'\ :sub:`13`
-    * - start + 16:
-      - Cb\ :sub:`01` Cr\ :sub:`00` Cb\ :sub:`00`
-      - Cr\ :sub:`02` Cb\ :sub:`02` Cr\ :sub:`01`
 
 
 Fully Planar YUV Formats
